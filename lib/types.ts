@@ -52,3 +52,30 @@ export interface OptimizeResponse {
   item: BomItem;
   error?: string;
 }
+
+export function createNewBomItem(
+  name: string,
+  specification: string = '',
+  quantity: number = 1
+): BomItem {
+  const qty = typeof quantity === 'number' && !isNaN(quantity) && quantity > 0 ? quantity : 1;
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Math.random().toString(36).substring(2, 11);
+
+  return {
+    id,
+    name: (name || '').trim(),
+    specification: (specification || '').trim(),
+    quantity: qty,
+    unitPrice: 0,
+    totalPrice: 0,
+    currency: 'VND',
+    status: 'pending',
+    selectedLink: '',
+    alternatives: [],
+    note: '',
+  };
+}
+
