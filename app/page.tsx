@@ -1,27 +1,27 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Sparkles,
   Upload,
   Search,
   Plus,
   Trash2,
-  FileSpreadsheet,
-  FileText,
   StopCircle,
   Loader2,
   Cpu,
   AlertCircle,
   X,
+  Sliders,
 } from 'lucide-react';
-import { BomItem, createNewBomItem } from '@/lib/types';
-import { exportBomToCsv, exportBomToExcel } from '@/lib/excel';
+import { BomItem, createNewBomItem, AppSettings } from '@/lib/types';
 import { InputBar } from '@/components/InputBar';
 import { FileUploadZone } from '@/components/FileUploadZone';
 import { ManualItemModal } from '@/components/ManualItemModal';
 import { BomTable } from '@/components/BomTable';
 import { SummaryCard } from '@/components/SummaryCard';
+import { ExportDropdown } from '@/components/ExportDropdown';
+import { SettingsModal } from '@/components/SettingsModal';
 
 export default function Home() {
   const [items, setItems] = useState<BomItem[]>([]);
@@ -34,9 +34,21 @@ export default function Home() {
     currentItemName?: string;
   }>({ current: 0, total: 0 });
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Load settings on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('robotics_bom_settings');
+      if (stored) {
+        setSettings(JSON.parse(stored));
+      }
+    } catch {}
+  }, []);
 
   // 1. Phân rã BOM qua AI
   const handleDecompose = async (prompt: string) => {
@@ -46,7 +58,12 @@ export default function Home() {
       const res = await fetch('/api/decompose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: prompt }),
+        body: JSON.stringify({
+          description: prompt,
+          apiKey: settings?.llmApiKey,
+          baseUrl: settings?.llmBaseUrl,
+          model: settings?.llmModel,
+        }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -117,7 +134,10 @@ export default function Home() {
       const searchRes = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({
+          query,
+          customUrl: settings?.searxngUrl,
+        }),
       });
       const searchData = await searchRes.json();
       const searchResults = Array.isArray(searchData?.results) ? searchData.results : [];
@@ -125,7 +145,13 @@ export default function Home() {
       const optRes = await fetch('/api/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item: target, searchResults }),
+        body: JSON.stringify({
+          item: target,
+          searchResults,
+          apiKey: settings?.llmApiKey,
+          baseUrl: settings?.llmBaseUrl,
+          model: settings?.llmModel,
+        }),
       });
       const optData = await optRes.json();
       if (optData?.item) {
@@ -180,7 +206,10 @@ export default function Home() {
           const searchRes = await fetch('/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query }),
+            body: JSON.stringify({
+              query,
+              customUrl: settings?.searxngUrl,
+            }),
             signal: controller.signal,
           });
 
@@ -193,7 +222,13 @@ export default function Home() {
           const optRes = await fetch('/api/optimize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item: currentItem, searchResults }),
+            body: JSON.stringify({
+              item: currentItem,
+              searchResults,
+              apiKey: settings?.llmApiKey,
+              baseUrl: settings?.llmBaseUrl,
+              model: settings?.llmModel,
+            }),
             signal: controller.signal,
           });
 
@@ -254,33 +289,6 @@ export default function Home() {
     }
   };
 
-  // 10. Xuất file
-  const handleExportCsv = () => {
-    if (items.length === 0) return;
-    const csvContent = exportBomToCsv(items);
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `BOM_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportExcel = () => {
-    if (items.length === 0) return;
-    const buffer = exportBomToExcel(items, 'Robotics BOM');
-    const blob = new Blob([new Uint8Array(buffer)], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `BOM_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const pendingCount = items.filter((it) => it.status !== 'found').length;
   const progressPercent =
     searchProgress.total > 0
@@ -297,20 +305,39 @@ export default function Home() {
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-inner">
                 <Cpu className="h-6 w-6" />
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-slate-100 via-slate-200 to-cyan-400 bg-clip-text text-transparent">
-                Robotics BOM Builder
-              </h1>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-slate-100 via-slate-200 to-cyan-400 bg-clip-text text-transparent">
+                  Robotics BOM Builder
+                </h1>
+                <div className="text-[11px] font-mono text-cyan-400/80">CLB ROBOTICS & TỰ ĐỘNG HÓA</div>
+              </div>
             </div>
             <p className="mt-1.5 text-xs sm:text-sm text-slate-400">
               Tự động phân rã linh kiện robot, tra cứu nguồn mua qua SearXNG và tối ưu chi phí với AI.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-xs text-slate-300">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              Hệ thống sẵn sàng
+              {settings?.llmModel ? (
+                <span className="font-mono text-cyan-300">{settings.llmModel}</span>
+              ) : (
+                'Hệ thống sẵn sàng'
+              )}
             </span>
+
+            <ExportDropdown items={items} />
+
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 shadow-sm transition-all hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+              title="Cấu hình hệ thống"
+            >
+              <Sliders className="h-3.5 w-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Cài đặt</span>
+            </button>
           </div>
         </header>
 
@@ -412,25 +439,7 @@ export default function Home() {
 
             {/* Secondary Export & Clear Actions */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleExportExcel}
-                disabled={items.length === 0}
-                className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-30"
-                title="Xuất file Excel"
-              >
-                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Xuất</span> Excel
-              </button>
-
-              <button
-                onClick={handleExportCsv}
-                disabled={items.length === 0}
-                className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-30"
-                title="Xuất file CSV"
-              >
-                <FileText className="h-3.5 w-3.5 text-cyan-400" />
-                <span className="hidden sm:inline">Xuất</span> CSV
-              </button>
+              <ExportDropdown items={items} />
 
               <button
                 onClick={handleClearAll}
@@ -491,6 +500,14 @@ export default function Home() {
           isOpen={isManualModalOpen}
           onClose={() => setIsManualModalOpen(false)}
           onAdd={handleAddManualItem}
+        />
+
+        {/* Modal cấu hình hệ thống */}
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          currentSettings={settings || undefined}
+          onSaved={(newSettings) => setSettings(newSettings)}
         />
       </div>
     </main>
