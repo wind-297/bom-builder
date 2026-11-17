@@ -1,0 +1,479 @@
+import { BomItem, createNewBomItem } from './types';
+import { getAppSettings } from './config';
+import { cleanJsonFromLlmOutput } from './llm';
+
+export type SearchIntent = 'single_product' | 'project_bom';
+
+export interface DecompositionResult {
+  intent: SearchIntent;
+  items: BomItem[];
+  projectName?: string;
+  budgetConstraint?: number | null;
+  alreadyOwned?: string[];
+  isAmbiguous?: boolean;
+  clarifyingQuestion?: string;
+}
+
+const SINGLE_PRODUCT_PREFIXES = [
+  'tìm',
+  'mua',
+  'tra cứu',
+  'báo giá',
+  'giá của',
+  'giá',
+  'linh kiện',
+  'module',
+  'mạch',
+  'cảm biến',
+  'động cơ',
+  'driver',
+  'ic',
+];
+
+const PROJECT_INDICATORS = [
+  'robot',
+  'xe',
+  'cánh tay',
+  'chế tạo',
+  'chế xe',
+  'làm robot',
+  'dự án',
+  'hệ thống',
+  'bom',
+  'vật tư để',
+  'linh kiện để làm',
+  'danh sách linh kiện',
+  'bóc tách',
+  'tự hành',
+  'dò line',
+  'tránh vật cản',
+];
+
+export function detectSearchIntent(query: string): SearchIntent {
+  const lower = (query || '').toLowerCase().trim();
+
+  // If starts with single product prefix (e.g. "Tìm ESP32", "Mua động cơ...", "Giá servo...")
+  const startsWithSinglePrefix = SINGLE_PRODUCT_PREFIXES.some((p) =>
+    lower.startsWith(p + ' ')
+  );
+
+  // If query explicitly requests a project build or BOM
+  const hasProjectPhrases = [
+    'chế tạo robot',
+    'làm robot',
+    'chế xe',
+    'chế cánh tay',
+    'dự án',
+    'danh sách linh kiện',
+    'danh sách cần mua',
+    'danh sách',
+    'bóc tách bom',
+    'bóc tách',
+    'vật tư để',
+    'linh kiện để làm',
+    'linh kiện làm',
+    'loại chúng khỏi danh sách',
+    'loại khỏi danh sách',
+  ].some((phrase) => lower.includes(phrase));
+
+  if (hasProjectPhrases) {
+    return 'project_bom';
+  }
+
+  // Component-level keywords
+  const isComponentQuery = [
+    'cảm biến',
+    'động cơ',
+    'servo',
+    'driver',
+    'esp32',
+    'arduino',
+    'stm32',
+    'raspberry',
+    'pin',
+    'mạch',
+    'module',
+    'khung',
+    'bánh xe',
+    'cáp',
+  ].some((kw) => lower.includes(kw));
+
+  // If starts with single prefix and has no project-scale phrases, it's single product
+  if (startsWithSinglePrefix && (!lower.includes('robot') || isComponentQuery)) {
+    return 'single_product';
+  }
+
+  // Check general project indicators
+  const hasProjectIndicator = PROJECT_INDICATORS.some((ind) => lower.includes(ind));
+  if (hasProjectIndicator) {
+    return 'project_bom';
+  }
+
+  // If it's a short query or component name, default to single_product
+  const words = lower.split(/\s+/).filter(Boolean);
+  if (words.length <= 6 || isComponentQuery) {
+    return 'single_product';
+  }
+
+  return 'project_bom';
+}
+
+export function parseBudgetConstraint(text: string): number | null {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+
+  const match = lower.match(
+    /(?:ngân\s*sách|kinh\s*phí|budget|giá\s*tối\s*đa|chi\s*phí)[:\s]*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{1,4}(?:\s*k|\s*triệu|\s*tr)|\d+)\s*(?:đ|vnd|vnđ|₫|đồng)?/i
+  );
+
+  if (!match) return null;
+
+  const raw = match[1].trim();
+
+  // Handle "800k", "500 k"
+  if (/^[0-9]+\s*k$/i.test(raw)) {
+    const num = parseInt(raw.replace(/k/i, ''), 10);
+    return isNaN(num) ? null : num * 1000;
+  }
+
+  // Handle "1.5 triệu", "2 tr"
+  if (/(?:triệu|tr)/i.test(raw)) {
+    const clean = raw.replace(/(?:triệu|tr)/i, '').replace(',', '.').trim();
+    const num = parseFloat(clean);
+    return isNaN(num) ? null : Math.round(num * 1000000);
+  }
+
+  // Handle "800.000", "1,500,000", "800000"
+  const cleanNumber = raw.replace(/[.,\s]/g, '');
+  const num = parseInt(cleanNumber, 10);
+  return isNaN(num) || num <= 0 ? null : num;
+}
+
+export function parseAlreadyOwnedItems(text: string): string[] {
+  if (!text) return [];
+  const lower = text.toLowerCase();
+
+  const patterns = [
+    /(?:đã\s*có|có\s*sẵn|loại|trừ)\s+([^,.;]+?)(?:\s+(?:và|hoặc|,|\.)|\s+hãy|\s+khỏi|\s+ra|$)/gi,
+    /(?:đã\s*có|có\s*sẵn)\s+(.+?)(?:,|\.|\s+hãy|\s+loại|$)/i,
+  ];
+
+  const results: string[] = [];
+
+  const ownedSentence = lower.match(/(?:đã\s*có|có\s*sẵn)[^,.;]+/gi);
+  if (ownedSentence) {
+    for (const phrase of ownedSentence) {
+      const cleaned = phrase.replace(/^(?:đã\s*có|có\s*sẵn)\s+/i, '');
+      const parts = cleaned.split(/\s+(?:và|với|,)\s+/i);
+      for (const p of parts) {
+        const item = p.trim();
+        if (item && item.length > 1) {
+          results.push(item);
+        }
+      }
+    }
+  }
+
+  return Array.from(new Set(results));
+}
+
+export function validateBomCompleteness(
+  projectDescription: string,
+  items: BomItem[]
+): BomItem[] {
+  const result = [...items];
+  const lowerDesc = (projectDescription || '').toLowerCase();
+  const allItemNames = result.map((it) => (it.name || '').toLowerCase()).join(' ');
+
+  const hasController =
+    /vi điều khiển|arduino|esp32|stm32|raspberry|microcontroller|uno|nano/i.test(allItemNames);
+  const hasDriver =
+    /driver|l298n|tb6612|bts7960|a4988|drv8825|mạch cầu|điều khiển động cơ/i.test(allItemNames);
+  const hasMotor =
+    /động cơ|motor|servo|bánh xe|bước/i.test(allItemNames);
+  const hasPower =
+    /pin|battery|nguồn|18650|lipo|bms|hạ áp|lm2596|buck/i.test(allItemNames);
+  const hasMechanics =
+    /khung|chassis|bánh xe|mica|nhôm|trụ đồng|ốc vít/i.test(allItemNames);
+
+  // Auto-complete controller if mobile robot lacks it
+  if (!hasController) {
+    result.unshift(
+      createNewBomItem(
+        'Mạch vi điều khiển ESP32 NodeMCU (hoặc Arduino Uno R3)',
+        'Vi điều khiển 32-bit Wi-Fi/Bluetooth hoặc ATmega328P',
+        1
+      )
+    );
+    result[0].subsystem = 'Hệ thống điều khiển';
+    result[0].note = 'Tự động bổ sung: Trung tâm điều khiển toàn bộ robot';
+    result[0].priority = 'essential';
+  }
+
+  // Auto-complete motor driver if motors are present but driver is absent
+  if (hasMotor && !hasDriver && (lowerDesc.includes('xe') || lowerDesc.includes('robot'))) {
+    const driverItem = createNewBomItem(
+      'Mạch điều khiển động cơ Driver L298N (hoặc TB6612FNG)',
+      'Hỗ trợ 2 động cơ DC độc lập, điện áp 5V-35V, dòng 2A',
+      1
+    );
+    driverItem.subsystem = 'Hệ thống truyền động';
+    driverItem.note = 'Tự động bổ sung: Mạch công suất điều khiển động cơ';
+    driverItem.priority = 'essential';
+    result.push(driverItem);
+  }
+
+  // Auto-complete power supply if absent
+  if (!hasPower) {
+    const powerItem = createNewBomItem(
+      'Khay 2 pin 18650 kèm 2 cell pin sạc Li-ion 3.7V',
+      'Điện áp 7.4V (2S), dung lượng ~2000-2600mAh',
+      1
+    );
+    powerItem.subsystem = 'Hệ thống nguồn điện';
+    powerItem.note = 'Tự động bổ sung: Nguồn cấp cho vi điều khiển và động cơ';
+    powerItem.priority = 'essential';
+    result.push(powerItem);
+  }
+
+  // Auto-complete mechanics / chassis if missing on mobile robot
+  if (!hasMechanics && (lowerDesc.includes('xe') || lowerDesc.includes('dò line') || lowerDesc.includes('tránh vật cản'))) {
+    const chassisItem = createNewBomItem(
+      'Bộ khung xe robot 2 bánh / 3 bánh (kèm bánh xe và bánh mắt trâu)',
+      'Khung mica hoặc nhôm, 2 bánh xe cao su, 1 bánh xe đa hướng',
+      1
+    );
+    chassisItem.subsystem = 'Khung cơ khí & Bánh xe';
+    chassisItem.note = 'Tự động bổ sung: Kết cấu khung gắn linh kiện';
+    chassisItem.priority = 'essential';
+    result.push(chassisItem);
+  }
+
+  return result;
+}
+
+export const ENHANCED_ROBOTICS_PROMPT = `Bạn là một kỹ sư trưởng Robotics & Hệ thống nhúng chuyên nghiệp.
+Nhiệm vụ: Phân tích yêu cầu dự án robot của người dùng và bóc tách thành danh sách linh kiện (BOM - Bill of Materials) hoàn chỉnh, có thể lắp ráp và vận hành thực tế.
+
+CÁC PHÂN HỆ BẮT BUỘC (SUBSYSTEMS):
+1. Hệ thống điều khiển: Vi điều khiển (ESP32, STM32, Arduino Uno/Nano, Raspberry Pi...), bo mạch mở rộng.
+2. Hệ thống cảm biến: Cảm biến dò line, siêu âm HC-SR04, IMU MPU6050, camera, công tắc hành trình...
+3. Hệ thống truyền động & Cơ cấu chấp hành: Động cơ DC giảm tốc (GA25, V1 vàng), servo (MG996R, SG90), động cơ bước, driver tương ứng (L298N, TB6612, A4988...).
+4. Hệ thống nguồn điện: Pin sạc (18650, LiPo 2S/3S), mạch bảo vệ sạc BMS, mạch hạ áp Buck LM2596 để cấp 5V ổn định cho vi điều khiển, công tắc nguồn.
+5. Khung cơ khí & Cơ cấu: Khung xe, bánh xe (cao su, Mecanum, Omni), khớp nối, gá kẹp, ốc vít M3, trụ đồng.
+6. Dây nối & Phụ kiện giao tiếp: Dây cắm cắm breadboard (đực-đực, đực-cái), đế pin, breadboard hoặc bo hàn đục lỗ.
+
+QUY TẮC BẮT BUỘC:
+- Mọi linh kiện phải thực tế, mua được tại các shop điện tử Việt Nam (Hshop, Thegioiic, Nshop...).
+- KHÔNG dùng cụm từ chung chung như "phụ kiện khác", "linh kiện linh tinh". Từng món phải có tên và thông số cụ thể.
+- Đảm bảo tính tương thích: Ví dụ động cơ 12V thì nguồn và driver phải chịu được 12V.
+
+Chỉ trả về JSON thuần túy (không kèm giải thích) theo format:
+{
+  "projectName": "Tên dự án",
+  "projectType": "mobile_robot | robotic_arm | autonomous | iot",
+  "items": [
+    {
+      "name": "Tên linh kiện cụ thể",
+      "specification": "Thông số kỹ thuật chi tiết",
+      "subsystem": "Hệ thống điều khiển | Hệ thống cảm biến | Hệ thống truyền động | Hệ thống nguồn điện | Khung cơ khí & Bánh xe | Dây nối & Phụ kiện",
+      "quantity": 1,
+      "priority": "essential | recommended | optional",
+      "note": "Vai trò và ghi chú lắp đặt"
+    }
+  ]
+}`;
+
+export async function decomposeProjectOrProduct(
+  prompt: string,
+  apiKey?: string,
+  baseUrl?: string,
+  model?: string
+): Promise<DecompositionResult> {
+  const trimmed = (prompt || '').trim();
+  if (!trimmed) {
+    return {
+      intent: 'project_bom',
+      items: [],
+    };
+  }
+
+  // Check ambiguity (e.g. "Tôi muốn chế tạo một robot nhưng chưa xác định được loại cụ thể", "làm robot")
+  const lower = trimmed.toLowerCase();
+  const isTooVague =
+    lower === 'làm robot' ||
+    lower === 'chế tạo robot' ||
+    lower === 'robot' ||
+    lower.includes('chưa xác định được loại') ||
+    lower.includes('chưa biết làm loại nào');
+
+  if (isTooVague) {
+    return {
+      intent: 'project_bom',
+      items: [],
+      isAmbiguous: true,
+      clarifyingQuestion:
+        'Bạn muốn chế tạo loại robot nào? (Ví dụ: Robot dò line tự hành, Xe tránh vật cản, Cánh tay robot 4 bậc tự do, hoặc Xe Mecanum điều khiển từ xa?)',
+    };
+  }
+
+  const intent = detectSearchIntent(trimmed);
+  const budget = parseBudgetConstraint(trimmed);
+  const ownedItems = parseAlreadyOwnedItems(trimmed);
+
+  // FLOW A: Single Product Search
+  if (intent === 'single_product') {
+    // Clean search text
+    let cleanName = trimmed;
+    for (const prefix of SINGLE_PRODUCT_PREFIXES) {
+      if (cleanName.toLowerCase().startsWith(prefix + ' ')) {
+        cleanName = cleanName.slice(prefix.length + 1).trim();
+      }
+    }
+
+    const singleItem = createNewBomItem(cleanName, '', 1);
+    singleItem.subsystem = 'Linh kiện đơn lẻ';
+    singleItem.note = 'Tìm kiếm sản phẩm đơn lẻ';
+
+    return {
+      intent: 'single_product',
+      items: [singleItem],
+      budgetConstraint: budget,
+    };
+  }
+
+  // FLOW B: Project BOM Search
+  const settings = getAppSettings();
+  const effectiveKey = apiKey ?? settings.llmApiKey;
+  const effectiveBaseUrl = (baseUrl ?? settings.llmBaseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const effectiveModel = model ?? settings.llmModel ?? 'gpt-4o-mini';
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (effectiveKey) {
+    headers['Authorization'] = `Bearer ${effectiveKey}`;
+  }
+
+  try {
+    const res = await fetch(`${effectiveBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: effectiveModel,
+        messages: [
+          { role: 'system', content: ENHANCED_ROBOTICS_PROMPT },
+          { role: 'user', content: trimmed },
+        ],
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!res.ok) {
+      throw new Error(`LLM API returned HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('Empty LLM response');
+    }
+
+    const cleaned = cleanJsonFromLlmOutput(content);
+    const parsed = JSON.parse(cleaned);
+
+    let rawList: any[] = [];
+    if (Array.isArray(parsed)) {
+      rawList = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.items)) rawList = parsed.items;
+      else if (Array.isArray(parsed.components)) rawList = parsed.components;
+      else if (Array.isArray(parsed.bom)) rawList = parsed.bom;
+    }
+
+    const mappedItems: BomItem[] = rawList.map((raw, idx) => {
+      const item = createNewBomItem(
+        raw.name || `Linh kiện ${idx + 1}`,
+        raw.specification || '',
+        typeof raw.quantity === 'number' && raw.quantity > 0 ? raw.quantity : 1
+      );
+      if (raw.subsystem) item.subsystem = raw.subsystem;
+      if (raw.priority) item.priority = raw.priority;
+      if (raw.note) item.note = raw.note;
+
+      // Check if user already owns this item
+      if (ownedItems.length > 0) {
+        const lowerName = item.name.toLowerCase();
+        const isOwned = ownedItems.some((ow) => lowerName.includes(ow) || ow.includes(lowerName));
+        if (isOwned) {
+          item.alreadyOwned = true;
+          item.note = item.note ? `${item.note} (Đã có sẵn)` : 'Đã có sẵn - không tính vào chi phí mua mới';
+        }
+      }
+
+      return item;
+    });
+
+    const validatedItems = validateBomCompleteness(trimmed, mappedItems);
+
+    return {
+      intent: 'project_bom',
+      items: validatedItems,
+      projectName: parsed?.projectName || trimmed,
+      budgetConstraint: budget,
+      alreadyOwned: ownedItems,
+    };
+  } catch (err) {
+    console.warn('decomposeProjectOrProduct LLM fallback:', err);
+    // Build deterministic baseline based on prompt keywords
+    const fallback = generateFallbackRobotBom(trimmed, ownedItems);
+    return {
+      intent: 'project_bom',
+      items: fallback,
+      projectName: trimmed,
+      budgetConstraint: budget,
+      alreadyOwned: ownedItems,
+    };
+  }
+}
+
+function generateFallbackRobotBom(prompt: string, ownedItems: string[]): BomItem[] {
+  const lower = prompt.toLowerCase();
+  const items: BomItem[] = [];
+
+  const add = (name: string, spec: string, qty: number, sub: string, note: string) => {
+    const it = createNewBomItem(name, spec, qty);
+    it.subsystem = sub;
+    it.note = note;
+    if (ownedItems.some((ow) => it.name.toLowerCase().includes(ow))) {
+      it.alreadyOwned = true;
+      it.note += ' (Đã có sẵn)';
+    }
+    items.push(it);
+  };
+
+  if (lower.includes('cánh tay') || lower.includes('arm')) {
+    add('Board điều khiển Arduino Uno R3', 'Kèm cáp USB nạp chương trình', 1, 'Hệ thống điều khiển', 'Bộ não điều khiển 4 servo');
+    add('Bộ 4 Servo MG996R bánh răng kim loại', 'Lực kéo 10kg/cm, góc quay 180 độ', 4, 'Hệ thống truyền động', 'Dẫn động 4 khớp xoay');
+    add('Khung cánh tay robot 4 DOF mica/kim loại', 'Kèm gắp kẹp cơ khí, ốc vít', 1, 'Khung cơ khí & Cơ cấu', 'Kết cấu chịu lực cánh tay');
+    add('Nguồn Adapter 5V 5A hoặc Pin 2S hạ áp', 'Cung cấp dòng cao cho servo', 1, 'Hệ thống nguồn điện', 'Cấp nguồn dòng cao độc lập cho servo');
+  } else if (lower.includes('tránh vật cản') || lower.includes('obstacle')) {
+    add('Board Arduino Uno R3 hoặc Nano V3', 'ATmega328P 16MHz', 1, 'Hệ thống điều khiển', 'Vi điều khiển trung tâm');
+    add('Cảm biến siêu âm HC-SR04 kèm giá đỡ', 'Khoảng cách đo 2cm - 400cm', 1, 'Hệ thống cảm biến', 'Phát hiện vật cản phía trước');
+    add('Mạch điều khiển động cơ L298N', 'Điện áp 5-35V, dòng 2A/kênh', 1, 'Hệ thống truyền động', 'Điều khiển 2 động cơ DC');
+    add('2 Động cơ DC giảm tốc kèm bánh xe cao su', 'Tỷ số truyền 1:48, điện áp 3-6V', 2, 'Hệ thống truyền động', 'Truyền động bánh xe');
+    add('Bộ khung xe robot 2 bánh thông minh', 'Đế mica, 1 bánh đa hướng mắt trâu', 1, 'Khung cơ khí & Bánh xe', 'Khung gắn linh kiện');
+    add('Khay 2 pin 18650 kèm pin sạc', 'Điện áp 7.4V cấp cho động cơ và Arduino', 1, 'Hệ thống nguồn điện', 'Nguồn điện chính');
+  } else {
+    // Default Line-follower or generic mobile robot
+    add('Mạch vi điều khiển ESP32 NodeMCU hoặc Arduino Uno', 'Bộ điều khiển lập trình trung tâm', 1, 'Hệ thống điều khiển', 'Xử lý tín hiệu cảm biến và điều khiển');
+    add('Module cảm biến dò line 5 kênh TCRT5000', 'Phát hiện đường vạch kẻ độ nhạy cao', 1, 'Hệ thống cảm biến', 'Cảm biến bám vạch dò line');
+    add('Mạch điều khiển động cơ TB6612FNG (hoặc L298N)', 'Driver MOSFET hiệu suất cao', 1, 'Hệ thống truyền động', 'Điều khiển chiều và tốc độ động cơ');
+    add('2 Động cơ DC giảm tốc GA25 hoặc vàng 1:48', 'Điện áp 6V - 12V, lực kéo khỏe', 2, 'Hệ thống truyền động', 'Dẫn động bánh xe di chuyển');
+    add('Bộ khung xe robot 2 bánh kèm bánh mắt trâu', 'Bánh xe cao su bám đường tốt', 1, 'Khung cơ khí & Bánh xe', 'Kết cấu khung xe');
+    add('Bộ nguồn pin sạc Li-ion 18650 2S 7.4V', 'Kèm mạch sạc và công tắc nguồn', 1, 'Hệ thống nguồn điện', 'Nguồn cấp toàn hệ thống');
+  }
+
+  return items;
+}

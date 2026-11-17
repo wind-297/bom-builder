@@ -8,12 +8,14 @@ import { calculateBomSummary, formatVnd, BomSummary } from './BomTable';
 export interface SummaryCardProps {
   items?: BomItem[];
   summary?: BomSummary;
+  budgetConstraint?: number | null;
   className?: string;
 }
 
 export const SummaryCard: React.FC<SummaryCardProps> = ({
   items,
   summary: propSummary,
+  budgetConstraint,
   className = '',
 }) => {
   const summary: BomSummary =
@@ -85,11 +87,11 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
         </div>
       </div>
 
-      {/* 3. Tổng ngân sách ước tính */}
+      {/* 3. Tổng ngân sách ước tính / tạm tính */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 shadow-sm backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Tổng ngân sách ước tính
+            {summary.hasUnavailablePrice ? 'Tổng chi phí tạm tính' : 'Tổng ngân sách ước tính'}
           </span>
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
             <Banknote className="h-4 w-4" />
@@ -101,9 +103,24 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
           </span>
           <span className="text-xs font-medium text-slate-400">₫</span>
         </div>
-        <p className="mt-1 text-xs text-slate-500">
-          Định dạng VND theo giá tìm kiếm tốt nhất
-        </p>
+        {budgetConstraint && budgetConstraint > 0 ? (
+          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+            <span className="text-slate-400">Mục tiêu: {formatVnd(budgetConstraint)}₫</span>
+            {summary.totalEstimatedBudget <= budgetConstraint ? (
+              <span className="text-emerald-400 font-medium">Trong ngân sách ✓</span>
+            ) : (
+              <span className="text-rose-400 font-medium">
+                Vượt {formatVnd(summary.totalEstimatedBudget - budgetConstraint)}₫
+              </span>
+            )}
+          </div>
+        ) : (
+          <p className="mt-1 text-xs text-slate-500">
+            {summary.hasUnavailablePrice
+              ? 'Tạm tính (một số linh kiện chưa có giá xác thực)'
+              : 'Định dạng VND theo giá tìm kiếm tốt nhất'}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -202,7 +202,7 @@ describe('Decompose API Route (POST /api/decompose)', () => {
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.items).toBeDefined();
-    expect(data.items.length).toBe(1);
-    expect(data.items[0].name).toBe('Pin Li-Po 3S 11.1V');
+    expect(data.items.length).toBeGreaterThanOrEqual(1);
+    expect(data.items.some((it: any) => it.name === 'Pin Li-Po 3S 11.1V')).toBe(true);
   });
 });

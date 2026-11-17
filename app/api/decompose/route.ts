@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { decomposeRobotToBom } from '@/lib/llm';
+import { decomposeProjectOrProduct } from '@/lib/decomposition-engine';
 
 export async function POST(req: Request) {
   try {
@@ -14,8 +14,16 @@ export async function POST(req: Request) {
     const baseUrl = typeof body?.baseUrl === 'string' ? body.baseUrl : undefined;
     const model = typeof body?.model === 'string' ? body.model : undefined;
 
-    const items = await decomposeRobotToBom(description, apiKey, baseUrl, model);
-    return NextResponse.json({ items });
+    const result = await decomposeProjectOrProduct(description, apiKey, baseUrl, model);
+    return NextResponse.json({
+      items: result.items,
+      intent: result.intent,
+      projectName: result.projectName,
+      budgetConstraint: result.budgetConstraint,
+      alreadyOwned: result.alreadyOwned,
+      isAmbiguous: result.isAmbiguous,
+      clarifyingQuestion: result.clarifyingQuestion,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Invalid request';
     return NextResponse.json({ error: message }, { status: 400 });

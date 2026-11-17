@@ -1,6 +1,12 @@
 import { getAppSettings } from './config';
 import { cleanJsonFromLlmOutput } from './llm';
 import { BomItem, BomItemAlternative, BomSearchResult } from './types';
+import {
+  extractPriceFromSnippet,
+  fetchPriceFromProductUrl,
+  normalizePrice,
+  ProductPrice,
+} from './price';
 
 const OPTIMIZER_TIMEOUT_MS = 30000;
 
@@ -234,36 +240,10 @@ Chỉ trả về JSON thuần túy (không kèm giải thích) theo định dạ
 
 export function extractPriceFromText(text: string): number {
   if (!text) return 0;
-
-  // Match shorthand like 50k, 120k
-  const kMatch = text.match(/\b([0-9]{1,4})\s*k\b/i);
-  if (kMatch) {
-    return parseInt(kMatch[1], 10) * 1000;
+  const parsed = extractPriceFromSnippet(text);
+  if (parsed && typeof parsed.amount === 'number' && parsed.amount > 0) {
+    return parsed.amount;
   }
-
-  // Match formatted currency like 85.000đ, 120,000 VND, 1.500.000 vnđ, 25.000₫
-  const currencyMatch = text.match(/([0-9]{1,3}(?:[.,][0-9]{3})+)\s*(?:đ|vnd|vnđ|₫)/i);
-  if (currencyMatch) {
-    const clean = currencyMatch[1].replace(/[.,]/g, '');
-    const num = parseInt(clean, 10);
-    return isNaN(num) ? 0 : num;
-  }
-
-  // Match "giá: 85.000" or "price: 85000"
-  const pricePrefixMatch = text.match(/(?:giá|price)[:\s]*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})/i);
-  if (pricePrefixMatch) {
-    const clean = pricePrefixMatch[1].replace(/[.,]/g, '');
-    const num = parseInt(clean, 10);
-    return isNaN(num) ? 0 : num;
-  }
-
-  // Match standalone number with đ/vnd/₫ e.g. 85000đ
-  const plainCurrencyMatch = text.match(/([0-9]{4,9})\s*(?:đ|vnd|vnđ|₫)/i);
-  if (plainCurrencyMatch) {
-    const num = parseInt(plainCurrencyMatch[1], 10);
-    return isNaN(num) ? 0 : num;
-  }
-
   return 0;
 }
 
@@ -277,19 +257,34 @@ function fallbackHeuristic(item: BomItem, searchResults: BomSearchResult[]): Bom
       status: 'not_found',
       selectedLink: '',
       alternatives: [],
+      priceInfo: {
+        amount: null,
+        currency: 'VND',
+        status: 'unavailable',
+      },
     };
   }
 
   const first = ranked[0];
-  const unitPrice = extractPriceFromText(`${first.content} ${first.title}`);
+  const parsedPrice = extractPriceFromSnippet(`${first.content} ${first.title}`);
+  const priceInfo: ProductPrice = normalizePrice(
+    parsedPrice
+      ? { ...parsedPrice, sourceUrl: first.url }
+      : { amount: null, currency: 'VND', status: 'unavailable', sourceUrl: first.url }
+  );
+  const unitPrice = priceInfo.amount || 0;
   const quantity = item.quantity > 0 ? item.quantity : 1;
 
-  const alternatives: BomItemAlternative[] = ranked.slice(1).map((r) => ({
-    title: r.title,
-    url: r.url,
-    price: extractPriceFromText(`${r.content} ${r.title}`),
-    reason: 'Kết quả tìm kiếm thay thế',
-  }));
+  const alternatives: BomItemAlternative[] = ranked.slice(1).map((r) => {
+    const altPrice = extractPriceFromSnippet(`${r.content} ${r.title}`);
+    return {
+      title: r.title,
+      url: r.url,
+      price: altPrice?.amount || undefined,
+      priceInfo: altPrice ? { ...altPrice, sourceUrl: r.url } : undefined,
+      reason: 'Kết quả tìm kiếm thay thế',
+    };
+  });
 
   return {
     ...item,
@@ -298,6 +293,7 @@ function fallbackHeuristic(item: BomItem, searchResults: BomSearchResult[]): Bom
     status: 'found',
     selectedLink: first.url,
     alternatives,
+    priceInfo,
   };
 }
 
@@ -390,11 +386,51 @@ ${rankedResults
     }
 
     let unitPrice = 0;
-    if (typeof parsed?.estimatedPrice === 'number' && !isNaN(parsed.estimatedPrice) && parsed.estimatedPrice > 0) {
+    let priceInfo: ProductPrice;
+
+    const selectedItem = rankedResults.find((r) => r.url === selectedUrl) || rankedResults[0];
+    const snippetPrice = extractPriceFromSnippet(`${selectedItem.content} ${selectedItem.title}`);
+
+    // Strictly prefer snippet-extracted price to avoid hallucination
+    if (snippetPrice && snippetPrice.amount && snippetPrice.amount > 0) {
+      unitPrice = snippetPrice.amount;
+      priceInfo = {
+        ...snippetPrice,
+        sourceUrl: selectedUrl,
+      };
+    } else if (
+      typeof parsed?.estimatedPrice === 'number' &&
+      !isNaN(parsed.estimatedPrice) &&
+      parsed.estimatedPrice > 0
+    ) {
+      const rawText = `${selectedItem.content} ${selectedItem.title}`;
+      const containsPrice =
+        rawText.includes(parsed.estimatedPrice.toString()) ||
+        rawText.includes(Math.round(parsed.estimatedPrice / 1000).toString());
+
       unitPrice = parsed.estimatedPrice;
+      priceInfo = {
+        amount: unitPrice,
+        currency: typeof parsed?.currency === 'string' ? parsed.currency : 'VND',
+        status: containsPrice ? 'verified' : 'estimated',
+        sourceUrl: selectedUrl,
+        confidence: containsPrice ? 0.9 : 0.6,
+      };
     } else {
-      const selectedItem = rankedResults.find((r) => r.url === selectedUrl) || rankedResults[0];
-      unitPrice = extractPriceFromText(`${selectedItem.content} ${selectedItem.title}`);
+      // Attempt lightweight structured data extraction if network allows, or set unavailable
+      const structuredPrice = await fetchPriceFromProductUrl(selectedUrl, item.name, 3000);
+      if (structuredPrice && structuredPrice.amount && structuredPrice.amount > 0) {
+        unitPrice = structuredPrice.amount;
+        priceInfo = structuredPrice;
+      } else {
+        unitPrice = 0;
+        priceInfo = {
+          amount: null,
+          currency: 'VND',
+          status: 'unavailable',
+          sourceUrl: selectedUrl,
+        };
+      }
     }
 
     const quantity = item.quantity > 0 ? item.quantity : 1;
@@ -421,11 +457,15 @@ ${rankedResults
     if (alternatives.length === 0) {
       alternatives = rankedResults
         .filter((r) => r.url !== selectedUrl)
-        .map((r) => ({
-          title: r.title,
-          url: r.url,
-          price: extractPriceFromText(`${r.content} ${r.title}`),
-        }));
+        .map((r) => {
+          const altPrice = extractPriceFromSnippet(`${r.content} ${r.title}`);
+          return {
+            title: r.title,
+            url: r.url,
+            price: altPrice?.amount || undefined,
+            priceInfo: altPrice ? { ...altPrice, sourceUrl: r.url } : undefined,
+          };
+        });
     }
 
     const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
@@ -444,6 +484,7 @@ ${rankedResults
       selectedLink: selectedUrl,
       alternatives,
       note,
+      priceInfo,
     };
   } catch (err) {
     console.warn('optimizeBomItemWithSearchResults LLM error:', err);

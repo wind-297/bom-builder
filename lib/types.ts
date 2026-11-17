@@ -1,7 +1,10 @@
+import { ProductPrice } from './price';
+
 export interface BomItemAlternative {
   title: string;
   url: string;
   price?: number;
+  priceInfo?: ProductPrice;
   reason?: string;
 }
 
@@ -17,6 +20,14 @@ export interface BomItem {
   selectedLink: string;
   alternatives: BomItemAlternative[];
   note: string;
+  // Enhanced attributes for architecture, compatibility and price verification
+  subsystem?: string;
+  category?: string;
+  priority?: 'essential' | 'recommended' | 'optional';
+  priceInfo?: ProductPrice;
+  compatibilityStatus?: 'compatible' | 'conditional' | 'incompatible' | 'unknown';
+  compatibilityNote?: string;
+  alreadyOwned?: boolean;
 }
 
 export interface BomSearchResult {

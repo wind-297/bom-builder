@@ -248,7 +248,11 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
 
         {/* Đơn giá */}
         <td className="px-4 py-3 text-right">
-          {isEditing ? (
+          {item.alreadyOwned ? (
+            <span className="inline-block rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400 border border-amber-500/20">
+              Đã có sẵn
+            </span>
+          ) : isEditing ? (
             <input
               type="number"
               min="0"
@@ -272,6 +276,30 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
               }}
               className="w-24 rounded bg-slate-800 px-2 py-1 text-right text-sm text-slate-100 border border-cyan-500 focus:outline-none"
             />
+          ) : item.status === 'found' && (item.unitPrice <= 0 || item.priceInfo?.status === 'unavailable') ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickUnitPrice(item.unitPrice);
+                setEditingField('unitPrice');
+              }}
+              title="Click để nhập giá thủ công"
+              className="text-[11px] text-amber-300/90 italic hover:underline cursor-pointer"
+            >
+              Chưa lấy được giá — Xem shop
+            </button>
+          ) : item.priceInfo?.status === 'range' && item.priceInfo.minAmount && item.priceInfo.maxAmount ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickUnitPrice(item.unitPrice);
+                setEditingField('unitPrice');
+              }}
+              title="Click để sửa đơn giá"
+              className="cursor-pointer rounded px-2 py-0.5 hover:bg-slate-800/80 font-mono text-xs text-amber-300"
+            >
+              {formatVnd(item.priceInfo.minAmount)} - {formatVnd(item.priceInfo.maxAmount)}
+            </button>
           ) : (
             <button
               type="button"
@@ -280,16 +308,25 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
                 setEditingField('unitPrice');
               }}
               title="Click để sửa đơn giá"
-              className="cursor-pointer rounded px-2 py-0.5 hover:bg-slate-800/80 font-mono text-xs text-slate-300"
+              className="cursor-pointer rounded px-2 py-0.5 hover:bg-slate-800/80 font-mono text-xs text-slate-300 inline-flex items-center gap-1"
             >
-              {formatVnd(item.unitPrice)}
+              <span>{formatVnd(item.unitPrice)}</span>
+              {item.priceInfo?.status === 'verified' && (
+                <span className="text-[10px] text-emerald-400 font-sans" title="Đã xác thực từ shop">✓</span>
+              )}
             </button>
           )}
         </td>
 
         {/* Thành tiền */}
         <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-slate-100">
-          {formatVnd(calculatedTotal)}
+          {item.alreadyOwned ? (
+            <span className="text-slate-500 italic">0 (sẵn có)</span>
+          ) : item.unitPrice <= 0 ? (
+            <span className="text-slate-500">—</span>
+          ) : (
+            formatVnd(calculatedTotal)
+          )}
         </td>
 
         {/* Trạng thái */}

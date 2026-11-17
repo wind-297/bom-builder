@@ -3,6 +3,7 @@
 import React from 'react';
 import { Package } from 'lucide-react';
 import { BomItem } from '../lib/types';
+import { formatPriceDisplay } from '../lib/price';
 import BomTableRow from './BomTableRow';
 
 export interface BomSummary {
@@ -10,6 +11,7 @@ export interface BomSummary {
   foundItems: number;
   pendingItems: number;
   totalEstimatedBudget: number;
+  hasUnavailablePrice?: boolean;
 }
 
 export function formatVnd(amount: number): string {
@@ -28,14 +30,21 @@ export function calculateBomSummary(items: BomItem[]): BomSummary {
       foundItems: 0,
       pendingItems: 0,
       totalEstimatedBudget: 0,
+      hasUnavailablePrice: false,
     };
   }
 
   const totalItems = items.length;
   const foundItems = items.filter((item) => item.status === 'found').length;
   const pendingItems = items.filter((item) => item.status !== 'found').length;
+  let hasUnavailablePrice = false;
 
   const totalEstimatedBudget = items.reduce((sum, item) => {
+    if (item.alreadyOwned) return sum;
+    if (item.status === 'found' && (item.unitPrice <= 0 || item.priceInfo?.status === 'unavailable')) {
+      hasUnavailablePrice = true;
+      return sum;
+    }
     const qty = Math.max(0, Number(item.quantity) || 0);
     const unit = Math.max(0, Number(item.unitPrice) || 0);
     const itemTotal =
@@ -50,6 +59,7 @@ export function calculateBomSummary(items: BomItem[]): BomSummary {
     foundItems,
     pendingItems,
     totalEstimatedBudget,
+    hasUnavailablePrice,
   };
 }
 

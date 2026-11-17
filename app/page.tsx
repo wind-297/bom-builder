@@ -23,12 +23,15 @@ import { BomTable } from '@/components/BomTable';
 import { SummaryCard } from '@/components/SummaryCard';
 import { ExportDropdown } from '@/components/ExportDropdown';
 import { SettingsModal } from '@/components/SettingsModal';
+import { CompatibilityBanner } from '@/components/CompatibilityBanner';
 
 export default function Home() {
   const [items, setItems] = useState<BomItem[]>([]);
   const [activeTab, setActiveTab] = useState<'ai' | 'upload'>('ai');
   const [isDecomposing, setIsDecomposing] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [budgetConstraint, setBudgetConstraint] = useState<number | null>(null);
+  const [projectName, setProjectName] = useState<string | null>(null);
   const [searchProgress, setSearchProgress] = useState<{
     current: number;
     total: number;
@@ -41,15 +44,42 @@ export default function Home() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Load settings on mount
+  // Load settings & saved workspace on mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('robotics_bom_settings');
-      if (stored) {
-        setSettings(JSON.parse(stored));
+      const storedSettings = localStorage.getItem('robotics_bom_settings');
+      if (storedSettings) {
+        setSettings(JSON.parse(storedSettings));
+      }
+      const storedWorkspace = localStorage.getItem('robotics_bom_workspace_v1');
+      if (storedWorkspace) {
+        const parsed = JSON.parse(storedWorkspace);
+        if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+          setItems(parsed.items);
+          if (parsed.projectName) setProjectName(parsed.projectName);
+          if (parsed.budgetConstraint) setBudgetConstraint(parsed.budgetConstraint);
+        }
       }
     } catch {}
   }, []);
+
+  // Autosave workspace on changes
+  useEffect(() => {
+    try {
+      if (items.length > 0) {
+        const state = {
+          version: 1,
+          items,
+          projectName,
+          budgetConstraint,
+          savedAt: Date.now(),
+        };
+        localStorage.setItem('robotics_bom_workspace_v1', JSON.stringify(state));
+      } else {
+        localStorage.removeItem('robotics_bom_workspace_v1');
+      }
+    } catch {}
+  }, [items, projectName, budgetConstraint]);
 
   // 1. Phân rã BOM qua AI
   const handleDecompose = async (prompt: string) => {
@@ -71,6 +101,18 @@ export default function Home() {
         throw new Error(data.error || 'Lỗi khi phân rã BOM');
       }
 
+      if (data.isAmbiguous && data.clarifyingQuestion) {
+        setErrorBanner(data.clarifyingQuestion);
+        return;
+      }
+
+      if (data.budgetConstraint) {
+        setBudgetConstraint(data.budgetConstraint);
+      }
+      if (data.projectName) {
+        setProjectName(data.projectName);
+      }
+
       const rawItems = Array.isArray(data.items) ? data.items : [];
       if (rawItems.length === 0) {
         setErrorBanner('AI không tìm thấy linh kiện nào. Hãy thử mô tả cụ thể hơn.');
@@ -87,11 +129,23 @@ export default function Home() {
           item.unitPrice = raw.unitPrice;
           item.totalPrice = item.quantity * item.unitPrice;
         }
+        if (raw.subsystem) item.subsystem = raw.subsystem;
+        if (raw.priority) item.priority = raw.priority;
+        if (raw.alreadyOwned) item.alreadyOwned = raw.alreadyOwned;
+        if (raw.priceInfo) item.priceInfo = raw.priceInfo;
         if (raw.note) item.note = raw.note;
         return item;
       });
 
       setItems((prev) => [...prev, ...newItems]);
+
+      // If single product intent, immediately research the single item
+      if (data.intent === 'single_product' && newItems.length === 1) {
+        const targetId = newItems[0].id;
+        setTimeout(() => {
+          handleResearchItem(targetId);
+        }, 100);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi phân rã BOM';
       setErrorBanner(msg);
@@ -287,6 +341,11 @@ export default function Home() {
         handleCancelSearch();
       }
       setItems([]);
+      setProjectName(null);
+      setBudgetConstraint(null);
+      try {
+        localStorage.removeItem('robotics_bom_workspace_v1');
+      } catch {}
     }
   };
 
@@ -402,7 +461,7 @@ export default function Home() {
         </section>
 
         {/* Summary Metric Cards */}
-        <SummaryCard items={items} />
+        <SummaryCard items={items} budgetConstraint={budgetConstraint} />
 
         {/* Action Controls & Progress Bar */}
         <section className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-4 shadow-sm backdrop-blur-sm">
@@ -479,6 +538,7 @@ export default function Home() {
 
         {/* Main BOM Table */}
         <section className="space-y-2">
+          {items.length > 0 && <CompatibilityBanner items={items} className="mb-2" />}
           <div className="flex items-center justify-between px-1">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
               Bảng linh kiện chi tiết

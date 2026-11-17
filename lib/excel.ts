@@ -8,6 +8,7 @@ const QTY_ALIASES = ['so luong', 'quantity', 'count', 'qty', 'sl'];
 const PRICE_ALIASES = ['don gia', 'unit price', 'price', 'cost', 'gia'];
 const NOTE_ALIASES = ['ghi chu', 'notes', 'note', 'remark'];
 const LINK_ALIASES = ['link mua hang', 'link san pham', 'link mua', 'link', 'url'];
+const SUBSYSTEM_ALIASES = ['phan he', 'he thong', 'subsystem', 'nhom', 'category'];
 
 function cleanHeader(val: unknown): string {
   if (val == null) return '';
@@ -80,13 +81,30 @@ function escapeCsvCell(val: unknown): string {
 }
 
 export function exportBomToCsv(items: BomItem[]): string {
-  const headers = ['STT', 'Tên linh kiện', 'Thông số kỹ thuật', 'Số lượng', 'Đơn giá (VND)', 'Thành tiền (VND)', 'Link mua hàng', 'Ghi chú'];
+  const headers = [
+    'STT',
+    'Tên linh kiện',
+    'Thông số kỹ thuật',
+    'Số lượng',
+    'Đơn giá (VND)',
+    'Thành tiền (VND)',
+    'Link mua hàng',
+    'Ghi chú',
+  ];
   const lines: string[] = [headers.join(',')];
 
   items.forEach((item, index) => {
     const qty = item.quantity ?? 1;
     const unitPrice = item.unitPrice ?? 0;
     const totalPrice = item.totalPrice ?? qty * unitPrice;
+    const note = [
+      item.subsystem ? `[${item.subsystem}]` : '',
+      item.note ?? '',
+      item.alreadyOwned ? '(Đã có sẵn)' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
     const row = [
       index + 1,
       escapeCsvCell(item.name ?? ''),
@@ -95,7 +113,7 @@ export function exportBomToCsv(items: BomItem[]): string {
       unitPrice,
       totalPrice,
       escapeCsvCell(item.selectedLink ?? ''),
-      escapeCsvCell(item.note ?? '')
+      escapeCsvCell(note),
     ];
     lines.push(row.join(','));
   });
@@ -112,13 +130,21 @@ export function exportBomToExcel(items: BomItem[], projectName?: string): Buffer
     'Đơn giá (VND)',
     'Thành tiền (VND)',
     'Link mua hàng',
-    'Ghi chú'
+    'Ghi chú',
   ];
 
-  const data = items.map((item, index) => {
+  const data: unknown[][] = items.map((item, index) => {
     const qty = item.quantity ?? 1;
     const unitPrice = item.unitPrice ?? 0;
     const totalPrice = item.totalPrice ?? qty * unitPrice;
+    const note = [
+      item.subsystem ? `[${item.subsystem}]` : '',
+      item.note ?? '',
+      item.alreadyOwned ? '(Đã có sẵn)' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
     return [
       index + 1,
       item.name ?? '',
@@ -127,7 +153,7 @@ export function exportBomToExcel(items: BomItem[], projectName?: string): Buffer
       unitPrice,
       totalPrice,
       item.selectedLink ?? '',
-      item.note ?? ''
+      note,
     ];
   });
 
@@ -140,7 +166,7 @@ export function exportBomToExcel(items: BomItem[], projectName?: string): Buffer
     { wch: 15 },
     { wch: 15 },
     { wch: 30 },
-    { wch: 25 }
+    { wch: 25 },
   ];
 
   const workbook = XLSX.utils.book_new();
@@ -203,6 +229,8 @@ export async function parseBomFile(buffer: Buffer | ArrayBuffer, fileName: strin
         tempMap.note = c;
       } else if (tempMap.link === undefined && matchesAlias(cleaned, LINK_ALIASES)) {
         tempMap.link = c;
+      } else if (tempMap.subsystem === undefined && matchesAlias(cleaned, SUBSYSTEM_ALIASES)) {
+        tempMap.subsystem = c;
       }
     }
 
@@ -229,7 +257,12 @@ export async function parseBomFile(buffer: Buffer | ArrayBuffer, fileName: strin
 
     const rawName = columnMap.name !== undefined ? row[columnMap.name] : row[0];
     const name = String(rawName ?? '').trim();
-    if (!name) continue;
+    if (!name || name.toUpperCase().includes('TỔNG CỘNG') || name.toUpperCase().includes('TONG CONG')) {
+      continue;
+    }
+
+    const rawSubsystem = columnMap.subsystem !== undefined ? row[columnMap.subsystem] : '';
+    const subsystem = String(rawSubsystem ?? '').trim();
 
     const rawSpec = columnMap.spec !== undefined ? row[columnMap.spec] : '';
     const specification = String(rawSpec ?? '').trim();
@@ -249,6 +282,7 @@ export async function parseBomFile(buffer: Buffer | ArrayBuffer, fileName: strin
     items.push({
       id: generateId(),
       name,
+      subsystem: subsystem || undefined,
       specification,
       quantity,
       unitPrice,
