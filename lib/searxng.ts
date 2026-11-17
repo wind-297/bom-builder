@@ -1,5 +1,6 @@
 import { getAppSettings } from './config';
 import { BomSearchResult } from './types';
+import { filterAndRankSearchResults } from './optimizer';
 
 const SEARCH_TIMEOUT_MS = 10000;
 
@@ -14,6 +15,22 @@ interface RawSearxResult {
 
 interface RawSearxResponse {
   results?: RawSearxResult[];
+}
+
+export function buildProductSearchQuery(name: string, specification?: string): string {
+  const parts = [name?.trim(), specification?.trim()].filter(Boolean);
+  const combined = parts.join(' ').trim();
+  if (!combined) return '';
+
+  const lower = combined.toLowerCase();
+  const keywords = ['linh kiện', 'mua', 'bán', 'giá', 'shop', 'cửa hàng'];
+  const hasKeyword = keywords.some((kw) => lower.includes(kw));
+
+  if (!hasKeyword) {
+    return `${combined} linh kiện`;
+  }
+
+  return combined;
 }
 
 export async function searchSearxng(
@@ -43,13 +60,15 @@ export async function searchSearxng(
       return [];
     }
 
-    return data.results.map((item): BomSearchResult => ({
+    const mapped = data.results.map((item): BomSearchResult => ({
       title: item.title || '',
       url: item.url || '',
       content: item.content || item.snippet || '',
       ...(item.engine ? { engine: item.engine } : {}),
       ...(typeof item.price === 'number' ? { price: item.price } : {}),
     }));
+
+    return filterAndRankSearchResults(mapped, trimmed);
   } catch (err) {
     console.warn('SearXNG search error:', err);
     return [];

@@ -1,7 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { searchSearxng } from '../lib/searxng';
+import { searchSearxng, buildProductSearchQuery } from '../lib/searxng';
 import { POST } from '../app/api/search/route';
 import { resetAppSettings, updateAppSettings } from '../lib/config';
+
+describe('buildProductSearchQuery', () => {
+  it('should append linh kiện when query lacks shopping/component keywords', () => {
+    expect(buildProductSearchQuery('Cảm biến độ ẩm đất')).toBe('Cảm biến độ ẩm đất linh kiện');
+    expect(buildProductSearchQuery('Arduino Uno R3', 'DIP ATmega328P')).toBe('Arduino Uno R3 DIP ATmega328P linh kiện');
+  });
+
+  it('should not duplicate when keywords like linh kiện, mua, bán, or giá already exist', () => {
+    expect(buildProductSearchQuery('Linh kiện IC 555')).toBe('Linh kiện IC 555');
+    expect(buildProductSearchQuery('Mua động cơ servo SG90 giá rẻ')).toBe('Mua động cơ servo SG90 giá rẻ');
+  });
+
+  it('should return empty string for empty input', () => {
+    expect(buildProductSearchQuery('')).toBe('');
+    expect(buildProductSearchQuery('   ')).toBe('');
+  });
+});
 
 describe('SearXNG Search Service', () => {
   beforeEach(() => {
@@ -93,6 +110,48 @@ describe('SearXNG Search Service', () => {
     const results = await searchSearxng('');
     expect(results).toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('should filter out news/agriculture portals and root domains, retaining deep product links', async () => {
+    const mockSearxResponse = {
+      results: [
+        {
+          title: 'Báo Nông Nghiệp: Ứng dụng cảm biến độ ẩm',
+          url: 'https://baonongnghiep.vn/cam-bien-do-am.html',
+          content: 'Kỹ thuật tưới cây nông nghiệp',
+        },
+        {
+          title: 'Hshop.vn - Cửa hàng linh kiện điện tử',
+          url: 'https://hshop.vn/',
+          content: 'Trang chủ cung cấp linh kiện robot',
+        },
+        {
+          title: 'Dân Trí: Nông sản sạch công nghệ cao',
+          url: 'https://dantri.com.vn/nong-san-cong-nghe-cao.htm',
+          content: 'Nông nghiệp thông minh',
+        },
+        {
+          title: 'Cảm Biến Độ Ẩm Đất Relay Đóng Ngắt 12V - Hshop.vn',
+          url: 'https://hshop.vn/products/cam-bien-do-am-dat-relay',
+          content: 'Giá bán: 45.000đ. Cảm biến độ ẩm đất tự động tưới',
+        },
+        {
+          title: 'Wikipedia: Cảm biến độ ẩm',
+          url: 'https://vi.wikipedia.org/wiki/C%E1%BA%A3m_bi%E1%BA%BFn',
+          content: 'Định nghĩa khoa học cảm biến',
+        },
+      ],
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockSearxResponse,
+    } as Response);
+
+    const results = await searchSearxng('cảm biến độ ẩm đất');
+    expect(results.length).toBe(1);
+    expect(results[0].url).toBe('https://hshop.vn/products/cam-bien-do-am-dat-relay');
+    expect(results[0].title).toContain('Hshop.vn');
   });
 });
 

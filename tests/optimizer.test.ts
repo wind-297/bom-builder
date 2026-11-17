@@ -91,6 +91,88 @@ describe('AI Product Optimizer', () => {
     expect(optimized.totalPrice).toBe(170000);
   });
 
+  it('should reject news articles and root homepages as selectedLink', async () => {
+    const dirtyResults: BomSearchResult[] = [
+      {
+        title: 'Báo Nông Nghiệp: Ứng dụng máy bơm nước trong tưới tiêu',
+        url: 'https://nongnghiep.vn/tin-tuc-may-bom-nuoc.html',
+        content: 'Nông nghiệp sạch áp dụng máy bơm nước mini tưới tiêu hoa màu.',
+      },
+      {
+        title: 'Thế Giới IC - Trang chủ',
+        url: 'https://thegioiic.com/',
+        content: 'Trang chủ siêu thị linh kiện điện tử thế giới IC.',
+      },
+      {
+        title: 'Máy Bơm Chìm Mini 5V 1.2-1.6L/phút - Thegioiic',
+        url: 'https://www.thegioiic.com/may-bom-chim-mini-5v-1-2-1-6l-phut',
+        content: 'Máy Bơm Chìm Mini 5V 1.2-1.6L/phút. Giá bán: 35.000đ',
+      },
+    ];
+
+    // Mock LLM mistakenly returning the homepage
+    const mockLlmDecision = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              selectedUrl: 'https://thegioiic.com/',
+              estimatedPrice: 35000,
+            }),
+          },
+        },
+      ],
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockLlmDecision,
+    } as Response);
+
+    const item: BomItem = {
+      ...baseItem,
+      name: 'Máy bơm mini 5V',
+    };
+
+    const optimized = await optimizeBomItemWithSearchResults(item, dirtyResults);
+    // Must reject the root homepage and news article, selecting the specific product link instead
+    expect(optimized.selectedLink).toBe('https://www.thegioiic.com/may-bom-chim-mini-5v-1-2-1-6l-phut');
+    expect(optimized.status).toBe('found');
+    expect(optimized.unitPrice).toBe(35000);
+  });
+
+  it('should mark item as not_found if all search results are irrelevant news or homepages', async () => {
+    const onlyJunkResults: BomSearchResult[] = [
+      {
+        title: 'Báo Nông Nghiệp: Ứng dụng tưới tiêu',
+        url: 'https://nongnghiep.vn/bai-viet.html',
+        content: 'Tưới tiêu nông nghiệp.',
+      },
+      {
+        title: 'Dân Trí: Nghiên cứu nông sản',
+        url: 'https://dantri.com.vn/nong-san.htm',
+        content: 'Nghiên cứu nông nghiệp.',
+      },
+      {
+        title: 'Shopee Việt Nam',
+        url: 'https://shopee.vn/',
+        content: 'Mua sắm trực tuyến.',
+      },
+    ];
+
+    global.fetch = vi.fn().mockRejectedValue(new Error('LLM error'));
+
+    const item: BomItem = {
+      ...baseItem,
+      name: 'Máy bơm mini 5V',
+    };
+
+    const optimized = await optimizeBomItemWithSearchResults(item, onlyJunkResults);
+    expect(optimized.status).toBe('not_found');
+    expect(optimized.selectedLink).toBe('');
+    expect(optimized.unitPrice).toBe(0);
+  });
+
   it('should handle markdown code fences in LLM response', async () => {
     const mockLlmDecision = {
       choices: [

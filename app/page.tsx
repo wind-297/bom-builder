@@ -15,6 +15,7 @@ import {
   Sliders,
 } from 'lucide-react';
 import { BomItem, createNewBomItem, AppSettings } from '@/lib/types';
+import { buildProductSearchQuery } from '@/lib/searxng';
 import { InputBar } from '@/components/InputBar';
 import { FileUploadZone } from '@/components/FileUploadZone';
 import { ManualItemModal } from '@/components/ManualItemModal';
@@ -130,7 +131,7 @@ export default function Home() {
     );
 
     try {
-      const query = `${target.name} ${target.specification || ''}`.trim();
+      const query = buildProductSearchQuery(target.name, target.specification);
       const searchRes = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -202,7 +203,7 @@ export default function Home() {
         );
 
         try {
-          const query = `${currentItem.name} ${currentItem.specification || ''}`.trim();
+          const query = buildProductSearchQuery(currentItem.name, currentItem.specification);
           const searchRes = await fetch('/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

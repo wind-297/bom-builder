@@ -4,25 +4,228 @@ import { BomItem, BomItemAlternative, BomSearchResult } from './types';
 
 const OPTIMIZER_TIMEOUT_MS = 30000;
 
-export const OPTIMIZER_SYSTEM_PROMPT = `Bạn là một chuyên gia mua sắm linh kiện điện tử và robotics tại Việt Nam.
-Nhiệm vụ của bạn là phân tích các kết quả tìm kiếm web cho một linh kiện trong BOM và chọn liên kết mua hàng tối ưu nhất.
+export const BLACKLISTED_DOMAINS = [
+  // News & media
+  'vnexpress.net',
+  'tuoitre.vn',
+  'thanhnien.vn',
+  'dantri.com.vn',
+  'vietnamnet.vn',
+  'baomoi.com',
+  'baonongnghiep.vn',
+  'nongnghiep.vn',
+  'vov.vn',
+  'vtv.vn',
+  'laodong.vn',
+  'tienphong.vn',
+  'zingnews.vn',
+  'znews.vn',
+  'kenh14.vn',
+  'soha.vn',
+  '24h.com.vn',
+  'congthuong.vn',
+  'khoahocdoisong.vn',
+  'tinmoi.vn',
+  'suckhoedoisong.vn',
+  'baophapluat.vn',
+  // Social & content platforms & wikis
+  'wikipedia.org',
+  'wikihow.com',
+  'youtube.com',
+  'youtu.be',
+  'facebook.com',
+  'fb.com',
+  'tiktok.com',
+  'instagram.com',
+  'twitter.com',
+  'x.com',
+  'pinterest.com',
+  'reddit.com',
+  'medium.com',
+  'tinhte.vn',
+];
 
-Tiêu chí:
-1. Khớp chính xác sản phẩm và quy cách (không chọn phụ kiện ngoài, đồ chơi, hoặc sản phẩm khác).
-2. Ưu tiên các shop uy tín tại Việt Nam (Hshop, Thế Giới IC, Điện Tử Tuhu, Shopee Mall, LCSC...) có thông tin giá rõ ràng.
-3. Bóc tách đơn giá thực tế từ nội dung/tiêu đề (quy đổi về số nguyên VND).
-4. Liệt kê các kết quả hợp lệ còn lại vào danh sách alternatives.
+export const TRUSTED_COMPONENT_DOMAINS = [
+  'hshop.vn',
+  'thegioiic.com',
+  'nshopvn.com',
+  'dientutuhu.vn',
+  'mualinhkien.vn',
+  'banlinhkien.vn',
+  'linhkienviet.vn',
+  'robocon.vn',
+  'icdayroi.com',
+  'chotroi.vn',
+  'shopee.vn',
+  'lazada.vn',
+  'tiki.vn',
+  'cybershop.vn',
+  'dientu360.com',
+  'dientudat.com',
+  'epuyen.vn',
+  'linhkienthuduc.com',
+];
+
+export function isBlacklistedDomain(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname.toLowerCase();
+    if (host.endsWith('.gov.vn') || host.endsWith('.edu.vn')) return true;
+    if (host.includes('nongnghiep') || host.includes('baochi') || host.includes('tintuc')) return true;
+    return BLACKLISTED_DOMAINS.some((d) => host === d || host.endsWith('.' + d));
+  } catch {
+    return true;
+  }
+}
+
+export function isSpecificProductUrl(urlStr: string): boolean {
+  if (!urlStr || typeof urlStr !== 'string') return false;
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.replace(/\/+$/, '');
+
+    // Reject root domains or index files (e.g. https://shopee.vn or https://hshop.vn/index.html)
+    if (!path || path === '' || path === '/' || path === '/index.html' || path === '/index.php') {
+      return false;
+    }
+
+    // Reject search or category filter pages
+    if (
+      path.includes('/search') ||
+      path.includes('/tim-kiem') ||
+      parsed.searchParams.has('keyword') ||
+      parsed.searchParams.has('q')
+    ) {
+      return false;
+    }
+
+    // Reject generic site paths
+    const genericPaths = [
+      '/about',
+      '/about-us',
+      '/contact',
+      '/contact-us',
+      '/lien-he',
+      '/gioi-thieu',
+      '/cart',
+      '/gio-hang',
+      '/account',
+      '/login',
+      '/dang-nhap',
+      '/checkout',
+      '/tin-tuc',
+      '/blogs',
+      '/blog',
+    ];
+    if (genericPaths.includes(path.toLowerCase())) {
+      return false;
+    }
+
+    // Marketplace specific checks
+    if (host.includes('shopee.vn')) {
+      if (!path.includes('-i.') && !path.includes('/product/')) {
+        return false;
+      }
+    }
+
+    const segments = path.split('/').filter(Boolean);
+    if (segments.length === 0) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function filterAndRankSearchResults(
+  results: BomSearchResult[],
+  itemName: string = ''
+): BomSearchResult[] {
+  if (!Array.isArray(results)) return [];
+
+  const valid = results.filter((r) => {
+    if (!r?.url) return false;
+    if (isBlacklistedDomain(r.url)) return false;
+    if (!isSpecificProductUrl(r.url)) return false;
+    return true;
+  });
+
+  const keywords = itemName
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 1);
+
+  return valid.sort((a, b) => {
+    const scoreA = calculateResultScore(a, keywords);
+    const scoreB = calculateResultScore(b, keywords);
+    return scoreB - scoreA;
+  });
+}
+
+function calculateResultScore(item: BomSearchResult, keywords: string[]): number {
+  let score = 10;
+  try {
+    const parsed = new URL(item.url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+
+    // Trusted component shop boost
+    if (TRUSTED_COMPONENT_DOMAINS.some((d) => host.includes(d))) {
+      score += 50;
+    }
+
+    // Explicit product path indicator
+    if (
+      path.includes('/products/') ||
+      path.includes('/product/') ||
+      path.includes('/san-pham/') ||
+      path.includes('-i.') ||
+      path.includes('.html')
+    ) {
+      score += 20;
+    }
+
+    // Price present in content/title
+    const text = `${item.content} ${item.title}`;
+    if (extractPriceFromText(text) > 0) {
+      score += 20;
+    }
+
+    // Keywords match
+    const lowerText = text.toLowerCase();
+    for (const kw of keywords) {
+      if (lowerText.includes(kw)) {
+        score += 10;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return score;
+}
+
+export const OPTIMIZER_SYSTEM_PROMPT = `Bạn là một chuyên gia mua sắm linh kiện điện tử và robotics tại Việt Nam.
+Nhiệm vụ của bạn là phân tích các kết quả tìm kiếm web cho một linh kiện trong BOM và chọn liên kết mua hàng cụ thể, tối ưu nhất.
+
+QUY TẮC BẮT BUỘC:
+1. "selectedUrl" BẮT BUỘC phải là một URL chi tiết đến trang sản phẩm cụ thể (có đường dẫn sản phẩm, mã sản phẩm hoặc slug).
+2. TUYỆT ĐỐI KHÔNG chọn hoặc tạo URL trang chủ website chung chung (ví dụ: KHÔNG được dùng "https://shopee.vn", "https://thegioiic.com", "https://hshop.vn").
+3. TUYỆT ĐỐI BỎ QUA các liên kết là báo chí (vnexpress, dantri, tuoitre, nongnghiep...), bài viết blog kỹ thuật, mạng xã hội (youtube, facebook...) không phải trang bán linh kiện.
+4. "selectedUrl" BẮT BUỘC PHẢI nằm trong danh sách URL từ kết quả tìm kiếm được cung cấp. KHÔNG ĐƯỢC tự bịa URL.
+5. Nếu trong kết quả tìm kiếm KHÔNG CÓ sản phẩm nào phù hợp hoặc chỉ toàn link báo chí/trang chủ, hãy trả về "selectedUrl": "" và "estimatedPrice": 0.
+6. Bóc tách đơn giá thực tế từ nội dung/tiêu đề (quy đổi về số nguyên VND).
 
 Chỉ trả về JSON thuần túy (không kèm giải thích) theo định dạng:
 {
-  "selectedUrl": "URL liên kết tối ưu nhất",
+  "selectedUrl": "URL liên kết sản phẩm cụ thể",
   "estimatedPrice": 85000,
   "currency": "VND",
   "reason": "Lý do lựa chọn",
   "alternatives": [
     {
       "title": "Tiêu đề",
-      "url": "URL",
+      "url": "URL sản phẩm cụ thể",
       "price": 85000,
       "reason": "Lý do thay thế"
     }
@@ -65,11 +268,23 @@ export function extractPriceFromText(text: string): number {
 }
 
 function fallbackHeuristic(item: BomItem, searchResults: BomSearchResult[]): BomItem {
-  const first = searchResults[0];
+  const ranked = filterAndRankSearchResults(searchResults, item.name);
+  if (ranked.length === 0) {
+    return {
+      ...item,
+      unitPrice: 0,
+      totalPrice: 0,
+      status: 'not_found',
+      selectedLink: '',
+      alternatives: [],
+    };
+  }
+
+  const first = ranked[0];
   const unitPrice = extractPriceFromText(`${first.content} ${first.title}`);
   const quantity = item.quantity > 0 ? item.quantity : 1;
 
-  const alternatives: BomItemAlternative[] = searchResults.slice(1).map((r) => ({
+  const alternatives: BomItemAlternative[] = ranked.slice(1).map((r) => ({
     title: r.title,
     url: r.url,
     price: extractPriceFromText(`${r.content} ${r.title}`),
@@ -93,11 +308,14 @@ export async function optimizeBomItemWithSearchResults(
   baseUrl?: string,
   model?: string
 ): Promise<BomItem> {
-  if (!searchResults || searchResults.length === 0) {
+  const rankedResults = filterAndRankSearchResults(searchResults, item.name);
+  if (!rankedResults || rankedResults.length === 0) {
     return {
       ...item,
       status: 'not_found',
       selectedLink: '',
+      unitPrice: 0,
+      totalPrice: 0,
       alternatives: item.alternatives || [],
     };
   }
@@ -112,8 +330,8 @@ export async function optimizeBomItemWithSearchResults(
 - Thông số: ${item.specification || 'Không có'}
 - Số lượng: ${item.quantity}
 
-Danh sách kết quả tìm kiếm:
-${searchResults
+Danh sách kết quả tìm kiếm sản phẩm:
+${rankedResults
   .map(
     (r, i) =>
       `[${i + 1}] Tiêu đề: ${r.title}\nURL: ${r.url}\nNội dung: ${r.content}`
@@ -144,28 +362,39 @@ ${searchResults
 
     if (!res.ok) {
       console.warn(`LLM API returned HTTP ${res.status}: ${res.statusText}`);
-      return fallbackHeuristic(item, searchResults);
+      return fallbackHeuristic(item, rankedResults);
     }
 
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content;
     if (!content || typeof content !== 'string') {
-      return fallbackHeuristic(item, searchResults);
+      return fallbackHeuristic(item, rankedResults);
     }
 
     const cleaned = cleanJsonFromLlmOutput(content);
     const parsed = JSON.parse(cleaned);
 
-    const selectedUrl =
-      typeof parsed?.selectedUrl === 'string' && parsed.selectedUrl.trim()
-        ? parsed.selectedUrl.trim()
-        : searchResults[0].url;
+    let selectedUrl = '';
+    const proposed = typeof parsed?.selectedUrl === 'string' ? parsed.selectedUrl.trim() : '';
+
+    if (
+      proposed &&
+      isSpecificProductUrl(proposed) &&
+      !isBlacklistedDomain(proposed) &&
+      rankedResults.some((r) => r.url === proposed)
+    ) {
+      selectedUrl = proposed;
+    } else {
+      // Pick top-ranked valid product URL
+      selectedUrl = rankedResults[0].url;
+    }
 
     let unitPrice = 0;
-    if (typeof parsed?.estimatedPrice === 'number' && !isNaN(parsed.estimatedPrice)) {
+    if (typeof parsed?.estimatedPrice === 'number' && !isNaN(parsed.estimatedPrice) && parsed.estimatedPrice > 0) {
       unitPrice = parsed.estimatedPrice;
     } else {
-      unitPrice = extractPriceFromText(`${searchResults[0].content} ${searchResults[0].title}`);
+      const selectedItem = rankedResults.find((r) => r.url === selectedUrl) || rankedResults[0];
+      unitPrice = extractPriceFromText(`${selectedItem.content} ${selectedItem.title}`);
     }
 
     const quantity = item.quantity > 0 ? item.quantity : 1;
@@ -174,15 +403,23 @@ ${searchResults
     let alternatives: BomItemAlternative[] = [];
     if (Array.isArray(parsed?.alternatives)) {
       alternatives = parsed.alternatives
-        .filter((alt: any) => alt && typeof alt.url === 'string')
+        .filter(
+          (alt: any) =>
+            alt &&
+            typeof alt.url === 'string' &&
+            isSpecificProductUrl(alt.url) &&
+            !isBlacklistedDomain(alt.url)
+        )
         .map((alt: any) => ({
           title: typeof alt.title === 'string' ? alt.title : '',
           url: alt.url,
           price: typeof alt.price === 'number' ? alt.price : undefined,
           reason: typeof alt.reason === 'string' ? alt.reason : undefined,
         }));
-    } else {
-      alternatives = searchResults
+    }
+
+    if (alternatives.length === 0) {
+      alternatives = rankedResults
         .filter((r) => r.url !== selectedUrl)
         .map((r) => ({
           title: r.title,
@@ -210,6 +447,6 @@ ${searchResults
     };
   } catch (err) {
     console.warn('optimizeBomItemWithSearchResults LLM error:', err);
-    return fallbackHeuristic(item, searchResults);
+    return fallbackHeuristic(item, rankedResults);
   }
 }
