@@ -1,6 +1,7 @@
 import { BomItem, createNewBomItem } from './types';
 import { getAppSettings } from './config';
 import { cleanJsonFromLlmOutput } from './llm';
+import { findCatalogMatches } from './catalog';
 
 export type SearchIntent = 'single_product' | 'project_bom';
 
@@ -335,6 +336,40 @@ export async function decomposeProjectOrProduct(
     singleItem.subsystem = 'Linh kiện đơn lẻ';
     singleItem.note = 'Tìm kiếm sản phẩm đơn lẻ';
 
+    const matches = findCatalogMatches(cleanName, 3);
+    if (matches.length > 0) {
+      const best = matches[0];
+      if (best.price && best.price > 0) {
+        singleItem.unitPrice = best.price;
+        singleItem.totalPrice = best.price;
+        singleItem.selectedLink = best.url;
+        singleItem.status = 'found';
+        singleItem.priceInfo = {
+          amount: best.price,
+          currency: 'VND',
+          status: 'verified',
+          sourceUrl: best.url,
+          confidence: 0.95,
+        };
+      }
+      if (matches.length > 1) {
+        singleItem.alternatives = matches.slice(1).map((m) => ({
+          title: m.title,
+          url: m.url,
+          price: m.price,
+          priceInfo: m.price
+            ? {
+                amount: m.price,
+                currency: 'VND',
+                status: 'verified',
+                sourceUrl: m.url,
+              }
+            : undefined,
+          reason: 'Linh kiện thay thế',
+        }));
+      }
+    }
+
     return {
       intent: 'single_product',
       items: [singleItem],
@@ -450,6 +485,42 @@ function generateFallbackRobotBom(prompt: string, ownedItems: string[]): BomItem
       it.alreadyOwned = true;
       it.note += ' (Đã có sẵn)';
     }
+
+    // Immediately pre-populate with verified robotics catalog price and link
+    const matches = findCatalogMatches(`${name} ${spec}`, 3);
+    if (matches.length > 0) {
+      const best = matches[0];
+      if (best.price && best.price > 0) {
+        it.unitPrice = best.price;
+        it.totalPrice = it.alreadyOwned ? 0 : qty * best.price;
+        it.selectedLink = best.url;
+        it.status = 'found';
+        it.priceInfo = {
+          amount: best.price,
+          currency: 'VND',
+          status: 'verified',
+          sourceUrl: best.url,
+          confidence: 0.95,
+        };
+      }
+      if (matches.length > 1) {
+        it.alternatives = matches.slice(1).map((m) => ({
+          title: m.title,
+          url: m.url,
+          price: m.price,
+          priceInfo: m.price
+            ? {
+                amount: m.price,
+                currency: 'VND',
+                status: 'verified',
+                sourceUrl: m.url,
+              }
+            : undefined,
+          reason: 'Linh kiện tương đương',
+        }));
+      }
+    }
+
     items.push(it);
   };
 
