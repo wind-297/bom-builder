@@ -454,13 +454,48 @@ function generateFallbackRobotBom(prompt: string, ownedItems: string[]): BomItem
   };
 
   if (lower.includes('cánh tay') || lower.includes('arm')) {
-    add('Board điều khiển Arduino Uno R3', 'Kèm cáp USB nạp chương trình', 1, 'Hệ thống điều khiển', 'Bộ não điều khiển 4 servo');
-    add('Bộ 4 Servo MG996R bánh răng kim loại', 'Lực kéo 10kg/cm, góc quay 180 độ', 4, 'Hệ thống truyền động', 'Dẫn động 4 khớp xoay');
-    add('Khung cánh tay robot 4 DOF mica/kim loại', 'Kèm gắp kẹp cơ khí, ốc vít', 1, 'Khung cơ khí & Cơ cấu', 'Kết cấu chịu lực cánh tay');
-    add('Nguồn Adapter 5V 5A hoặc Pin 2S hạ áp', 'Cung cấp dòng cao cho servo', 1, 'Hệ thống nguồn điện', 'Cấp nguồn dòng cao độc lập cho servo');
+    add('Board điều khiển Arduino Uno R3 DIP kèm cáp', 'ATmega328P 16MHz nạp chương trình', 1, 'Hệ thống điều khiển', 'Bộ não điều khiển 4 servo');
+    add('Bộ 4 Servo MG996R bánh răng kim loại', 'Lực kéo 11kg/cm, góc quay 180 độ', 4, 'Hệ thống truyền động', 'Dẫn động các khớp xoay chịu lực');
+    add('Bộ khung cánh tay robot 4 DOF mica/kim loại', 'Kèm gắp kẹp cơ khí, ốc vít M3', 1, 'Khung cơ khí & Cơ cấu', 'Kết cấu chịu lực cánh tay');
+    add('Mạch giảm áp DC-DC Buck LM2596 3A', 'Hạ áp xuống 5V dòng cao cho servo', 1, 'Hệ thống nguồn điện', 'Cấp nguồn dòng cao độc lập cho servo');
+    add('Khay 2 Pin 18650 kèm 2 cell pin sạc 3.7V', 'Điện áp 7.4V (2S) 2600mAh', 1, 'Hệ thống nguồn điện', 'Nguồn điện chính');
+    add('Tép 40 dây cắm test board đực - cái 20cm', 'Dây nối tín hiệu PWM từ Arduino đến servo', 1, 'Dây nối & Phụ kiện', 'Kết nối tín hiệu');
+  } else if (lower.includes('mecanum') || lower.includes('đa hướng') || lower.includes('4 bánh')) {
+    add('Kit RF Thu Phát WiFi BLE ESP32 NodeMCU', 'Điều khiển qua Wi-Fi / Bluetooth điện thoại', 1, 'Hệ thống điều khiển', 'Vi điều khiển trung tâm 32-bit');
+    add('Bộ 4 Bánh Xe Mecanum 60mm trục TT', 'Chuyển động đa hướng tiến lùi ngang xoay', 1, 'Khung cơ khí & Bánh xe', 'Cơ cấu chuyển động đa hướng');
+    add('4 Động cơ DC giảm tốc TT vàng 1:48', 'Điện áp 3-6V, trục kép', 4, 'Hệ thống truyền động', 'Dẫn động độc lập 4 bánh');
+    add('2 Mạch điều khiển động cơ L298N', 'Điều khiển 4 động cơ DC độc lập', 2, 'Hệ thống truyền động', 'Mạch công suất điều khiển 4 bánh');
+    add('Khung xe robot 4 bánh mica 2 tầng', 'Kèm trụ đồng M3 và ốc vít', 1, 'Khung cơ khí & Bánh xe', 'Khung xe 2 tầng gắn linh kiện');
+    add('Khay 2 Pin 18650 kèm 2 cell pin sạc 3.7V', 'Điện áp 7.4V 2600mAh', 1, 'Hệ thống nguồn điện', 'Nguồn cấp toàn hệ thống');
+    add('Mạch giảm áp DC-DC Buck LM2596 3A', 'Hạ áp 7.4V xuống 5V cho ESP32', 1, 'Hệ thống nguồn điện', 'Ổn áp 5V');
+    add('Tép 40 dây cắm test board đực - cái', 'Dây cắm nối chân GPIO và driver', 1, 'Dây nối & Phụ kiện', 'Dây tín hiệu');
+  } else if (lower.includes('cân bằng') || lower.includes('balance')) {
+    add('Kit STM32F103C8T6 Blue Pill ARM Cortex-M3', 'Xử lý thuật toán PID tần số cao', 1, 'Hệ thống điều khiển', 'Bộ điều khiển tính toán góc nghiêng');
+    add('Module Cảm Biến Gia Tốc Con Quay MPU-6050', 'Đo góc nghiêng 6 trục I2C', 1, 'Hệ thống cảm biến', 'Cảm biến hồi tiếp góc nghiêng');
+    add('2 Động cơ DC giảm tốc GA25 kèm encoder', 'Tốc độ 300rpm, đọc phản hồi xung encoder', 2, 'Hệ thống truyền động', 'Động cơ lực kéo mạnh đáp ứng nhanh');
+    add('Mạch điều khiển động cơ TB6612FNG', 'Driver MOSFET hiệu suất cao tần số PWM cao', 1, 'Hệ thống truyền động', 'Mạch công suất động cơ');
+    add('Bộ khung xe cân bằng 2 bánh hợp kim nhôm', 'Kèm bánh xe cao su 65mm bám đường', 1, 'Khung cơ khí & Bánh xe', 'Khung đứng xe tự cân bằng');
+    add('Bộ nguồn pin sạc Li-ion 18650 3S 11.1V hoặc 2S', 'Dòng xả cao cho động cơ GA25', 1, 'Hệ thống nguồn điện', 'Nguồn điện công suất');
+    add('Mạch giảm áp DC-DC Buck LM2596 3A', 'Hạ áp xuống 5V cho vi điều khiển', 1, 'Hệ thống nguồn điện', 'Nguồn nuôi mạch');
+  } else if (lower.includes('cứu hỏa') || lower.includes('chữa cháy') || lower.includes('dập lửa')) {
+    add('Kit Arduino Uno R3 DIP kèm cáp', 'ATmega328P 16MHz', 1, 'Hệ thống điều khiển', 'Vi điều khiển trung tâm');
+    add('3 Module Cảm Biến Phát Hiện Lửa Flame Sensor', 'Phát hiện nguồn nhiệt lửa 3 hướng', 3, 'Hệ thống cảm biến', 'Cảm biến tìm hướng lửa');
+    add('Động Cơ Quạt Mini Kèm Cánh Quạt Thổi Lửa', 'Thổi dập tắt ngọn nến/lửa', 1, 'Hệ thống truyền động', 'Cơ cấu dập lửa');
+    add('Mạch điều khiển động cơ L298N', 'Điều khiển 2 động cơ di chuyển và động cơ quạt', 1, 'Hệ thống truyền động', 'Driver động cơ');
+    add('2 Động cơ DC giảm tốc kèm bánh xe cao su', 'Tỷ số truyền 1:48, 3-6V', 2, 'Hệ thống truyền động', 'Di chuyển tiếp cận lửa');
+    add('Bộ khung xe robot 2 bánh thông minh', 'Đế mica, 1 bánh đa hướng mắt trâu', 1, 'Khung cơ khí & Bánh xe', 'Khung xe cơ sở');
+    add('Khay 2 Pin 18650 kèm pin sạc', 'Điện áp 7.4V', 1, 'Hệ thống nguồn điện', 'Nguồn điện chính');
+  } else if (lower.includes('camera') || lower.includes('esp32-cam') || lower.includes('nhận diện') || lower.includes('thị giác')) {
+    add('Kit RF Thu Phát WiFi BLE Camera ESP32-CAM', 'Tích hợp camera OV2640 2MP và khe thẻ nhớ', 1, 'Hệ thống điều khiển', 'Thu nhận hình ảnh và stream video');
+    add('Mạch nạp ESP32-CAM-MB Micro USB', 'Mạch nạp chương trình và cấp nguồn', 1, 'Hệ thống điều khiển', 'Giao tiếp nạp code');
+    add('Mạch điều khiển động cơ TB6612FNG', 'Hiệu suất cao tiết kiệm năng lượng', 1, 'Hệ thống truyền động', 'Điều khiển 2 bánh xe');
+    add('2 Động cơ DC giảm tốc TT kèm bánh xe', 'Bánh xe cao su 65mm', 2, 'Hệ thống truyền động', 'Truyền động bánh xe');
+    add('Bộ khung xe robot 2 bánh thông minh', 'Đế mica, 1 bánh đa hướng mắt trâu', 1, 'Khung cơ khí & Bánh xe', 'Khung gắn camera');
+    add('Khay 2 Pin 18650 kèm mạch hạ áp 5V', 'Cấp nguồn 5V dòng ổn định tránh reset camera', 1, 'Hệ thống nguồn điện', 'Nguồn điện ổn định');
   } else if (lower.includes('tránh vật cản') || lower.includes('obstacle')) {
     add('Board Arduino Uno R3 hoặc Nano V3', 'ATmega328P 16MHz', 1, 'Hệ thống điều khiển', 'Vi điều khiển trung tâm');
     add('Cảm biến siêu âm HC-SR04 kèm giá đỡ', 'Khoảng cách đo 2cm - 400cm', 1, 'Hệ thống cảm biến', 'Phát hiện vật cản phía trước');
+    add('Động Cơ RC Servo SG90 9G', 'Quay góc cảm biến siêu âm quét trái phải', 1, 'Hệ thống truyền động', 'Quét góc quan sát');
     add('Mạch điều khiển động cơ L298N', 'Điện áp 5-35V, dòng 2A/kênh', 1, 'Hệ thống truyền động', 'Điều khiển 2 động cơ DC');
     add('2 Động cơ DC giảm tốc kèm bánh xe cao su', 'Tỷ số truyền 1:48, điện áp 3-6V', 2, 'Hệ thống truyền động', 'Truyền động bánh xe');
     add('Bộ khung xe robot 2 bánh thông minh', 'Đế mica, 1 bánh đa hướng mắt trâu', 1, 'Khung cơ khí & Bánh xe', 'Khung gắn linh kiện');

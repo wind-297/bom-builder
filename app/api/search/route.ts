@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { searchSearxng } from '@/lib/searxng';
+import { findCatalogMatches } from '@/lib/catalog';
 
 export async function POST(req: Request) {
   try {
@@ -11,7 +12,12 @@ export async function POST(req: Request) {
     }
 
     const customUrl = typeof body?.customUrl === 'string' ? body.customUrl : undefined;
-    const results = await searchSearxng(query, customUrl);
+    let results = await searchSearxng(query, customUrl);
+
+    // Fallback to verified robotics catalog if SearXNG is unavailable or returns 0 results
+    if (!results || results.length === 0) {
+      results = findCatalogMatches(query);
+    }
 
     return NextResponse.json({ results });
   } catch (err: unknown) {

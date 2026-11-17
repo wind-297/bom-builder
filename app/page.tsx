@@ -139,13 +139,10 @@ export default function Home() {
 
       setItems((prev) => [...prev, ...newItems]);
 
-      // If single product intent, immediately research the single item
-      if (data.intent === 'single_product' && newItems.length === 1) {
-        const targetId = newItems[0].id;
-        setTimeout(() => {
-          handleResearchItem(targetId);
-        }, 100);
-      }
+      // Tự động kích hoạt tìm kiếm và định giá chi tiết ngay sau khi bóc tách
+      setTimeout(() => {
+        runBatchSearchAndOptimize(newItems);
+      }, 100);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi phân rã BOM';
       setErrorBanner(msg);
@@ -226,8 +223,8 @@ export default function Home() {
   };
 
   // 7. Quy trình tự động tìm kiếm hàng loạt (SearXNG + AI)
-  const handleStartAutoSearch = async () => {
-    const pendingItems = items.filter((it) => it.status !== 'found');
+  const runBatchSearchAndOptimize = async (targetItems: BomItem[]) => {
+    const pendingItems = targetItems.filter((it) => it.status !== 'found');
     if (pendingItems.length === 0) return;
 
     setIsSearching(true);
@@ -319,6 +316,10 @@ export default function Home() {
       setIsSearching(false);
       abortControllerRef.current = null;
     }
+  };
+
+  const handleStartAutoSearch = async () => {
+    await runBatchSearchAndOptimize(items);
   };
 
   // 8. Hủy tìm kiếm

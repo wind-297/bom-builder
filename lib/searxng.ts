@@ -2,7 +2,7 @@ import { getAppSettings } from './config';
 import { BomSearchResult } from './types';
 import { filterAndRankSearchResults } from './optimizer';
 
-const SEARCH_TIMEOUT_MS = 10000;
+const SEARCH_TIMEOUT_MS = 6000;
 
 interface RawSearxResult {
   title?: string;
