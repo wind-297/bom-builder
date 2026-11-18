@@ -36,6 +36,7 @@ export default function Home() {
     current: number;
     total: number;
     currentItemName?: string;
+    step?: string;
   }>({ current: 0, total: 0 });
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -55,7 +56,19 @@ export default function Home() {
       if (storedWorkspace) {
         const parsed = JSON.parse(storedWorkspace);
         if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-          setItems(parsed.items);
+          const sanitizedItems = parsed.items.map((it: BomItem) => {
+            if (it.manualPrice?.entrySource === 'user_input' && typeof it.manualPrice.amount === 'number') {
+              return it;
+            }
+            return {
+              ...it,
+              unitPrice: 0,
+              totalPrice: 0,
+              manualPrice: { amount: null, currency: 'VND', entrySource: null },
+              priceInfo: undefined,
+            };
+          });
+          setItems(sanitizedItems);
           if (parsed.projectName) setProjectName(parsed.projectName);
           if (parsed.budgetConstraint) setBudgetConstraint(parsed.budgetConstraint);
         }
@@ -125,14 +138,22 @@ export default function Home() {
           raw.specification || '',
           raw.quantity || 1
         );
-        if (typeof raw.unitPrice === 'number' && raw.unitPrice > 0) {
-          item.unitPrice = raw.unitPrice;
+        if (raw.manualPrice?.entrySource === 'user_input' && typeof raw.manualPrice.amount === 'number') {
+          item.manualPrice = raw.manualPrice;
+          item.unitPrice = raw.manualPrice.amount;
           item.totalPrice = item.quantity * item.unitPrice;
         }
         if (raw.subsystem) item.subsystem = raw.subsystem;
         if (raw.priority) item.priority = raw.priority;
         if (raw.alreadyOwned) item.alreadyOwned = raw.alreadyOwned;
-        if (raw.priceInfo) item.priceInfo = raw.priceInfo;
+        if (raw.selectedLink) item.selectedLink = raw.selectedLink;
+        if (raw.supplierName) item.supplierName = raw.supplierName;
+        if (raw.supplierDomain) item.supplierDomain = raw.supplierDomain;
+        if (raw.supplierTier) item.supplierTier = raw.supplierTier;
+        if (raw.supplierCountry) item.supplierCountry = raw.supplierCountry;
+        if (raw.linkStatus) item.linkStatus = raw.linkStatus;
+        if (raw.matchType) item.matchType = raw.matchType;
+        if (raw.alternatives) item.alternatives = raw.alternatives;
         if (raw.note) item.note = raw.note;
         return item;
       });
@@ -246,6 +267,7 @@ export default function Home() {
           current: i,
           total: pendingItems.length,
           currentItemName: currentItem.name,
+          step: 'Đang tìm tại các nhà cung cấp Việt Nam...',
         });
 
         // Set status 'searching'
@@ -270,6 +292,13 @@ export default function Home() {
           const searchResults = Array.isArray(searchData?.results) ? searchData.results : [];
 
           if (controller.signal.aborted) break;
+
+          setSearchProgress({
+            current: i,
+            total: pendingItems.length,
+            currentItemName: currentItem.name,
+            step: 'Đang xác minh đường dẫn & xếp hạng kỹ thuật...',
+          });
 
           const optRes = await fetch('/api/optimize', {
             method: 'POST',
@@ -374,7 +403,7 @@ export default function Home() {
               </div>
             </div>
             <p className="mt-1.5 text-xs sm:text-sm text-slate-400">
-              Tự động phân rã linh kiện robot, tra cứu nguồn mua qua SearXNG và tối ưu chi phí với AI.
+              Phân rã linh kiện robot, tìm kiếm sản phẩm trực tiếp từ nhà cung cấp Việt Nam uy tín, xác minh link thật và quản lý ngân sách thủ công.
             </p>
           </div>
 
@@ -521,7 +550,7 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
                   <span>
-                    Đang tìm kiếm ({searchProgress.current}/{searchProgress.total}):{' '}
+                    {searchProgress.step || 'Đang tìm kiếm'} ({searchProgress.current + 1}/{searchProgress.total}):{' '}
                     <strong className="text-cyan-400">{searchProgress.currentItemName}</strong>
                   </span>
                 </div>

@@ -3,14 +3,16 @@
 import React from 'react';
 import { Package } from 'lucide-react';
 import { BomItem } from '../lib/types';
-import { formatPriceDisplay } from '../lib/price';
 import BomTableRow from './BomTableRow';
 
 export interface BomSummary {
   totalItems: number;
   foundItems: number;
   pendingItems: number;
+  unpricedItems: number;
+  pricedItems: number;
   totalEstimatedBudget: number;
+  isBudgetComplete: boolean;
   hasUnavailablePrice?: boolean;
 }
 
@@ -29,7 +31,10 @@ export function calculateBomSummary(items: BomItem[]): BomSummary {
       totalItems: 0,
       foundItems: 0,
       pendingItems: 0,
+      unpricedItems: 0,
+      pricedItems: 0,
       totalEstimatedBudget: 0,
+      isBudgetComplete: true,
       hasUnavailablePrice: false,
     };
   }
@@ -37,29 +42,42 @@ export function calculateBomSummary(items: BomItem[]): BomSummary {
   const totalItems = items.length;
   const foundItems = items.filter((item) => item.status === 'found').length;
   const pendingItems = items.filter((item) => item.status !== 'found').length;
-  let hasUnavailablePrice = false;
 
-  const totalEstimatedBudget = items.reduce((sum, item) => {
-    if (item.alreadyOwned) return sum;
-    if (item.status === 'found' && (item.unitPrice <= 0 || item.priceInfo?.status === 'unavailable')) {
-      hasUnavailablePrice = true;
-      return sum;
+  let unpricedItems = 0;
+  let pricedItems = 0;
+  let totalEstimatedBudget = 0;
+
+  for (const item of items) {
+    if (item.alreadyOwned) {
+      continue;
     }
-    const qty = Math.max(0, Number(item.quantity) || 0);
-    const unit = Math.max(0, Number(item.unitPrice) || 0);
-    const itemTotal =
-      typeof item.totalPrice === 'number' && !isNaN(item.totalPrice) && item.totalPrice > 0
-        ? item.totalPrice
-        : qty * unit;
-    return sum + itemTotal;
-  }, 0);
+
+    const unit = Number(item.unitPrice) || 0;
+    const qty = Math.max(1, Number(item.quantity) || 1);
+
+    if (unit > 0) {
+      pricedItems++;
+      const itemTotal =
+        typeof item.totalPrice === 'number' && item.totalPrice > 0
+          ? item.totalPrice
+          : qty * unit;
+      totalEstimatedBudget += itemTotal;
+    } else {
+      unpricedItems++;
+    }
+  }
+
+  const isBudgetComplete = unpricedItems === 0;
 
   return {
     totalItems,
     foundItems,
     pendingItems,
+    unpricedItems,
+    pricedItems,
     totalEstimatedBudget,
-    hasUnavailablePrice,
+    isBudgetComplete,
+    hasUnavailablePrice: unpricedItems > 0,
   };
 }
 
@@ -86,13 +104,13 @@ export const BomTable: React.FC<BomTableProps> = ({
             <tr>
               <th scope="col" className="w-12 px-3 py-3.5 text-center">#</th>
               <th scope="col" className="min-w-[180px] px-4 py-3.5">Tên linh kiện</th>
-              <th scope="col" className="min-w-[180px] px-4 py-3.5">Thông số kỹ thuật</th>
-              <th scope="col" className="w-20 px-3 py-3.5 text-center">SL</th>
-              <th scope="col" className="min-w-[120px] px-4 py-3.5 text-right">Đơn giá (₫)</th>
-              <th scope="col" className="min-w-[120px] px-4 py-3.5 text-right">Thành tiền (₫)</th>
-              <th scope="col" className="min-w-[130px] px-4 py-3.5 text-center">Trạng thái</th>
-              <th scope="col" className="min-w-[180px] px-4 py-3.5">Link mua chính</th>
-              <th scope="col" className="w-28 px-3 py-3.5 text-center">Thao tác</th>
+              <th scope="col" className="min-w-[170px] px-4 py-3.5">Thông số kỹ thuật</th>
+              <th scope="col" className="w-16 px-3 py-3.5 text-center">SL</th>
+              <th scope="col" className="min-w-[140px] px-4 py-3.5 text-right">Đơn giá (₫)</th>
+              <th scope="col" className="min-w-[130px] px-4 py-3.5 text-right">Thành tiền (₫)</th>
+              <th scope="col" className="min-w-[120px] px-4 py-3.5 text-center">Trạng thái</th>
+              <th scope="col" className="min-w-[210px] px-4 py-3.5">Sản phẩm & Nguồn</th>
+              <th scope="col" className="w-24 px-3 py-3.5 text-center">Thao tác</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/80 bg-slate-950/40">

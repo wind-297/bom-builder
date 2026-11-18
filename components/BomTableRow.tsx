@@ -12,6 +12,9 @@ import {
   ChevronDown,
   Check,
   X,
+  ShieldCheck,
+  Globe,
+  Store,
 } from 'lucide-react';
 import { BomItem, BomItemAlternative } from '../lib/types';
 import { formatVnd } from './BomTable';
@@ -38,35 +41,46 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
   const [editName, setEditName] = useState(item.name);
   const [editSpecification, setEditSpecification] = useState(item.specification);
   const [editQuantity, setEditQuantity] = useState(item.quantity);
-  const [editUnitPrice, setEditUnitPrice] = useState(item.unitPrice);
+  const [editUnitPrice, setEditUnitPrice] = useState<string>(
+    item.unitPrice > 0 ? String(item.unitPrice) : ''
+  );
   const [editNote, setEditNote] = useState(item.note || '');
 
-  // Quick inline edit state for quantity & price when not in full row edit mode
+  // Quick inline edit state for quantity & price
   const [editingField, setEditingField] = useState<'quantity' | 'unitPrice' | null>(null);
   const [quickQuantity, setQuickQuantity] = useState(item.quantity);
-  const [quickUnitPrice, setQuickUnitPrice] = useState(item.unitPrice);
+  const [quickUnitPrice, setQuickUnitPrice] = useState<string>(
+    item.unitPrice > 0 ? String(item.unitPrice) : ''
+  );
 
   const handleStartEdit = () => {
     setEditName(item.name);
     setEditSpecification(item.specification);
     setEditQuantity(item.quantity);
-    setEditUnitPrice(item.unitPrice);
+    setEditUnitPrice(item.unitPrice > 0 ? String(item.unitPrice) : '');
     setEditNote(item.note || '');
     setIsEditing(true);
   };
 
   const handleSaveEdit = () => {
     const qty = Math.max(1, Number(editQuantity) || 1);
-    const unitPrice = Math.max(0, Number(editUnitPrice) || 0);
-    const totalPrice = qty * unitPrice;
+    const parsedPrice = editUnitPrice.trim() ? Math.max(0, Number(editUnitPrice) || 0) : 0;
+    const hasPrice = parsedPrice > 0;
+    const totalPrice = qty * parsedPrice;
 
     onUpdate({
       ...item,
       name: editName.trim() || item.name,
       specification: editSpecification.trim(),
       quantity: qty,
-      unitPrice,
+      unitPrice: parsedPrice,
       totalPrice,
+      manualPrice: {
+        amount: hasPrice ? parsedPrice : null,
+        currency: 'VND',
+        entrySource: hasPrice ? 'user_input' : null,
+        enteredAt: hasPrice ? new Date().toISOString() : undefined,
+      },
       note: editNote.trim(),
     });
     setIsEditing(false);
@@ -88,25 +102,34 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
   };
 
   const handleSaveQuickUnitPrice = () => {
-    const unitPrice = Math.max(0, Number(quickUnitPrice) || 0);
-    const totalPrice = item.quantity * unitPrice;
+    const parsedPrice = quickUnitPrice.trim() ? Math.max(0, Number(quickUnitPrice) || 0) : 0;
+    const hasPrice = parsedPrice > 0;
+    const totalPrice = item.quantity * parsedPrice;
+
     onUpdate({
       ...item,
-      unitPrice,
+      unitPrice: parsedPrice,
       totalPrice,
+      manualPrice: {
+        amount: hasPrice ? parsedPrice : null,
+        currency: 'VND',
+        entrySource: hasPrice ? 'user_input' : null,
+        enteredAt: hasPrice ? new Date().toISOString() : undefined,
+      },
     });
     setEditingField(null);
   };
 
   const handleSelectAlternative = (alt: BomItemAlternative) => {
-    const unitPrice = typeof alt.price === 'number' && alt.price > 0 ? alt.price : item.unitPrice;
-    const totalPrice = item.quantity * unitPrice;
-
     onUpdate({
       ...item,
       selectedLink: alt.url,
-      unitPrice,
-      totalPrice,
+      supplierName: alt.supplierName || item.supplierName,
+      supplierDomain: alt.supplierDomain || item.supplierDomain,
+      supplierTier: alt.supplierTier || item.supplierTier,
+      supplierCountry: alt.supplierCountry || item.supplierCountry,
+      linkStatus: alt.linkStatus || 'verified',
+      matchType: alt.matchType || 'alternative',
       status: 'found',
     });
     setShowAlternatives(false);
@@ -155,6 +178,90 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     }
   };
 
+  const renderSupplierBadge = (
+    tier?: number,
+    country?: string,
+    name?: string,
+    domain?: string
+  ) => {
+    const displayName = name || (domain ? domain.replace('www.', '') : '');
+    if (!displayName) return null;
+
+    if (tier === 1) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+          <Store className="w-3 h-3 text-emerald-400" />
+          <span>{displayName} (VN)</span>
+        </span>
+      );
+    }
+    if (tier === 2) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
+          <span>Sàn TMĐT {displayName}</span>
+        </span>
+      );
+    }
+    if (tier === 3 || country === 'INT') {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30">
+          <Globe className="w-3 h-3 text-purple-400" />
+          <span>{displayName} (Quốc tế)</span>
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+        <span>{displayName}</span>
+      </span>
+    );
+  };
+
+  const renderLinkVerificationBadge = (linkStatus?: string) => {
+    if (linkStatus === 'verified') {
+      return (
+        <span
+          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-400"
+          title="Đường dẫn sản phẩm thực tế đã xác minh"
+        >
+          <ShieldCheck className="w-3 h-3" />
+          <span>Đã xác minh</span>
+        </span>
+      );
+    }
+    if (linkStatus === 'blocked') {
+      return (
+        <span
+          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-400"
+          title="Website chặn kiểm tra tự động (mở link trực tiếp)"
+        >
+          <AlertCircle className="w-3 h-3" />
+          <span>Chặn bot</span>
+        </span>
+      );
+    }
+    if (linkStatus === 'dead') {
+      return (
+        <span
+          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-400"
+          title="Đường dẫn bị lỗi 404 hoặc không tồn tại"
+        >
+          <AlertCircle className="w-3 h-3" />
+          <span>Link lỗi</span>
+        </span>
+      );
+    }
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 text-[10px] font-medium text-slate-400"
+        title="Đường dẫn chưa kiểm tra HTTP"
+      >
+        <span>Chưa xác minh</span>
+      </span>
+    );
+  };
+
   const calculatedTotal =
     typeof item.totalPrice === 'number' && !isNaN(item.totalPrice) && item.totalPrice > 0
       ? item.totalPrice
@@ -185,6 +292,9 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
           ) : (
             <div className="flex flex-col">
               <span className="text-slate-100 font-medium">{item.name}</span>
+              {item.subsystem && (
+                <span className="text-[11px] text-cyan-400/80">{item.subsystem}</span>
+              )}
               {item.note && (
                 <span className="text-xs text-slate-500 truncate max-w-xs">{item.note}</span>
               )}
@@ -215,7 +325,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
               min="1"
               value={editQuantity}
               onChange={(e) => setEditQuantity(Number(e.target.value))}
-              className="w-16 rounded bg-slate-800 px-2 py-1 text-center text-sm text-slate-100 border border-slate-700 focus:outline-none focus:border-cyan-500"
+              className="w-14 rounded bg-slate-800 px-2 py-1 text-center text-sm text-slate-100 border border-slate-700 focus:outline-none focus:border-cyan-500"
             />
           ) : editingField === 'quantity' ? (
             <input
@@ -229,7 +339,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
                 if (e.key === 'Enter') handleSaveQuickQuantity();
                 if (e.key === 'Escape') setEditingField(null);
               }}
-              className="w-16 rounded bg-slate-800 px-2 py-1 text-center text-sm text-slate-100 border border-cyan-500 focus:outline-none"
+              className="w-14 rounded bg-slate-800 px-2 py-1 text-center text-sm text-slate-100 border border-cyan-500 focus:outline-none"
             />
           ) : (
             <button
@@ -246,74 +356,68 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
           )}
         </td>
 
-        {/* Đơn giá */}
+        {/* Đơn giá thủ công (Manual Pricing) */}
         <td className="px-4 py-3 text-right">
           {item.alreadyOwned ? (
             <span className="inline-block rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400 border border-amber-500/20">
               Đã có sẵn
             </span>
           ) : isEditing ? (
-            <input
-              type="number"
-              min="0"
-              step="1000"
-              value={editUnitPrice}
-              onChange={(e) => setEditUnitPrice(Number(e.target.value))}
-              className="w-24 rounded bg-slate-800 px-2 py-1 text-right text-sm text-slate-100 border border-slate-700 focus:outline-none focus:border-cyan-500"
-            />
+            <div className="flex items-center justify-end gap-1">
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="Nhập giá"
+                value={editUnitPrice}
+                onChange={(e) => setEditUnitPrice(e.target.value)}
+                className="w-24 rounded bg-slate-800 px-2 py-1 text-right text-sm text-slate-100 border border-slate-700 focus:outline-none focus:border-cyan-500"
+              />
+              <span className="text-xs text-slate-400">₫</span>
+            </div>
           ) : editingField === 'unitPrice' ? (
-            <input
-              type="number"
-              min="0"
-              step="1000"
-              autoFocus
-              value={quickUnitPrice}
-              onChange={(e) => setQuickUnitPrice(Number(e.target.value))}
-              onBlur={handleSaveQuickUnitPrice}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSaveQuickUnitPrice();
-                if (e.key === 'Escape') setEditingField(null);
-              }}
-              className="w-24 rounded bg-slate-800 px-2 py-1 text-right text-sm text-slate-100 border border-cyan-500 focus:outline-none"
-            />
-          ) : item.status === 'found' && (item.unitPrice <= 0 || item.priceInfo?.status === 'unavailable') ? (
+            <div className="flex items-center justify-end gap-1">
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="Nhập giá"
+                autoFocus
+                value={quickUnitPrice}
+                onChange={(e) => setQuickUnitPrice(e.target.value)}
+                onBlur={handleSaveQuickUnitPrice}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveQuickUnitPrice();
+                  if (e.key === 'Escape') setEditingField(null);
+                }}
+                className="w-24 rounded bg-slate-800 px-2 py-1 text-right text-sm text-slate-100 border border-cyan-500 focus:outline-none"
+              />
+              <span className="text-xs text-slate-400">₫</span>
+            </div>
+          ) : item.unitPrice > 0 ? (
             <button
               type="button"
               onClick={() => {
-                setQuickUnitPrice(item.unitPrice);
+                setQuickUnitPrice(String(item.unitPrice));
                 setEditingField('unitPrice');
               }}
-              title="Click để nhập giá thủ công"
-              className="text-[11px] text-amber-300/90 italic hover:underline cursor-pointer"
+              title="Click để sửa đơn giá thủ công"
+              className="cursor-pointer rounded px-2 py-0.5 hover:bg-slate-800/80 font-mono text-xs text-emerald-400 inline-flex items-center gap-1"
             >
-              Chưa lấy được giá — Xem shop
-            </button>
-          ) : item.priceInfo?.status === 'range' && item.priceInfo.minAmount && item.priceInfo.maxAmount ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQuickUnitPrice(item.unitPrice);
-                setEditingField('unitPrice');
-              }}
-              title="Click để sửa đơn giá"
-              className="cursor-pointer rounded px-2 py-0.5 hover:bg-slate-800/80 font-mono text-xs text-amber-300"
-            >
-              {formatVnd(item.priceInfo.minAmount)} - {formatVnd(item.priceInfo.maxAmount)}
+              <span>{formatVnd(item.unitPrice)} ₫</span>
+              <Edit2 className="w-2.5 h-2.5 text-slate-500" />
             </button>
           ) : (
             <button
               type="button"
               onClick={() => {
-                setQuickUnitPrice(item.unitPrice);
+                setQuickUnitPrice('');
                 setEditingField('unitPrice');
               }}
-              title="Click để sửa đơn giá"
-              className="cursor-pointer rounded px-2 py-0.5 hover:bg-slate-800/80 font-mono text-xs text-slate-300 inline-flex items-center gap-1"
+              title="Click để nhập đơn giá thủ công"
+              className="rounded border border-dashed border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-400 hover:bg-cyan-500/20 transition-colors"
             >
-              <span>{formatVnd(item.unitPrice)}</span>
-              {item.priceInfo?.status === 'verified' && (
-                <span className="text-[10px] text-emerald-400 font-sans" title="Đã xác thực từ shop">✓</span>
-              )}
+              + Nhập giá
             </button>
           )}
         </td>
@@ -321,27 +425,37 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
         {/* Thành tiền */}
         <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-slate-100">
           {item.alreadyOwned ? (
-            <span className="text-slate-500 italic">0 (sẵn có)</span>
+            <span className="text-slate-500 italic">0 ₫ (Sẵn có)</span>
           ) : item.unitPrice <= 0 ? (
-            <span className="text-slate-500">—</span>
+            <span className="text-slate-500 font-normal">—</span>
           ) : (
-            formatVnd(calculatedTotal)
+            <span className="text-emerald-400">{formatVnd(calculatedTotal)} ₫</span>
           )}
         </td>
 
         {/* Trạng thái */}
         <td className="px-4 py-3 text-center">{renderStatusBadge()}</td>
 
-        {/* Link mua chính + Alternatives */}
+        {/* Sản phẩm & Nguồn link */}
         <td className="px-4 py-3">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {renderSupplierBadge(
+                item.supplierTier,
+                item.supplierCountry,
+                item.supplierName,
+                item.supplierDomain
+              )}
+              {item.selectedLink && renderLinkVerificationBadge(item.linkStatus)}
+            </div>
+
             {item.selectedLink ? (
               <a
                 href={item.selectedLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 title={item.selectedLink}
-                className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 hover:underline max-w-[180px] truncate"
+                className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 hover:underline max-w-[210px] truncate"
               >
                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">{getDomainFromUrl(item.selectedLink)}</span>
@@ -401,7 +515,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
               <button
                 type="button"
                 onClick={() => onResearch(item.id)}
-                title="Tìm lại với AI"
+                title="Tìm lại sản phẩm"
                 className="p-1 rounded text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition-colors"
               >
                 <RotateCw className="w-3.5 h-3.5" />
@@ -419,50 +533,56 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
         </td>
       </tr>
 
-      {/* Expanded alternatives list */}
+      {/* Expanded alternatives list (No price displayed!) */}
       {showAlternatives && item.alternatives && item.alternatives.length > 0 && (
         <tr className="bg-slate-900/60 border-b border-slate-800">
           <td colSpan={9} className="px-6 py-3">
             <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Các link mua thay thế ({item.alternatives.length}):
+                Các nguồn mua thay thế ({item.alternatives.length}):
               </div>
               <div className="space-y-2">
                 {item.alternatives.map((alt, altIdx) => (
                   <div
                     key={altIdx}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-900/70 p-2 text-xs border border-slate-800/80"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-900/70 p-2.5 text-xs border border-slate-800/80"
                   >
-                    <div className="flex flex-col flex-1 min-w-[200px]">
-                      <div className="flex items-center gap-1.5 font-medium text-slate-200">
+                    <div className="flex flex-col flex-1 min-w-[220px]">
+                      <div className="flex items-center gap-2">
+                        {renderSupplierBadge(
+                          alt.supplierTier,
+                          alt.supplierCountry,
+                          alt.supplierName,
+                          alt.supplierDomain
+                        )}
+                        {renderLinkVerificationBadge(alt.linkStatus)}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 font-medium text-slate-200 mt-1">
                         <span className="truncate">{alt.title || getDomainFromUrl(alt.url)}</span>
                         <a
                           href={alt.url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-cyan-400 hover:text-cyan-300"
-                          title="Mở link"
+                          title="Mở link xem sản phẩm"
                         >
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       </div>
+
                       {alt.reason && (
                         <span className="text-[11px] text-slate-400 mt-0.5">{alt.reason}</span>
                       )}
                     </div>
 
                     <div className="flex items-center gap-3">
-                      {typeof alt.price === 'number' && alt.price > 0 && (
-                        <span className="font-mono text-emerald-400 font-semibold">
-                          {formatVnd(alt.price)} ₫
-                        </span>
-                      )}
                       <button
                         type="button"
                         onClick={() => handleSelectAlternative(alt)}
-                        className="rounded bg-cyan-600/20 px-2 py-1 text-[11px] font-medium text-cyan-400 hover:bg-cyan-600/30 border border-cyan-500/30 transition-colors"
+                        className="rounded bg-cyan-600/20 px-2.5 py-1 text-xs font-medium text-cyan-400 hover:bg-cyan-600/30 border border-cyan-500/30 transition-colors"
                       >
-                        Chọn link này
+                        Chọn nguồn này
                       </button>
                     </div>
                   </div>

@@ -1,11 +1,60 @@
-import { ProductPrice } from './price';
+export interface ManualPrice {
+  amount: number | null;
+  currency: string;
+  entrySource: 'user_input' | null;
+  enteredAt?: string;
+  note?: string;
+}
+
+export interface ProductLinkVerification {
+  status: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
+  lastCheckedAt?: string;
+  httpStatus?: number;
+  reason?: string;
+}
 
 export interface BomItemAlternative {
   title: string;
   url: string;
-  price?: number;
-  priceInfo?: ProductPrice;
+  sourceDomain?: string;
+  sourceName?: string;
+  country?: 'VN' | 'INT';
+  tier?: 1 | 2 | 3;
+  supplierDomain?: string;
+  supplierName?: string;
+  supplierCountry?: 'VN' | 'INT';
+  supplierTier?: 1 | 2 | 3;
+  linkStatus?: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
+  matchType?: 'best_match' | 'most_reliable' | 'alternative';
   reason?: string;
+  // Legacy optional price field for backward compatibility
+  price?: number;
+}
+
+export interface SearchProduct {
+  id: string;
+  name: string;
+  brand?: string;
+  model?: string;
+  category: string;
+  description?: string;
+  specifications?: Record<string, unknown>;
+  imageUrl?: string;
+  supplier: {
+    name: string;
+    domain: string;
+    country: 'VN' | 'INT';
+    type: string;
+    tier?: 1 | 2 | 3;
+  };
+  productUrl: string;
+  linkVerification: ProductLinkVerification;
+  technicalMatch: {
+    score: number;
+    reasons: string[];
+    warnings: string[];
+    matchType?: 'best_match' | 'most_reliable' | 'alternative';
+  };
 }
 
 export interface BomItem {
@@ -20,11 +69,19 @@ export interface BomItem {
   selectedLink: string;
   alternatives: BomItemAlternative[];
   note: string;
-  // Enhanced attributes for architecture, compatibility and price verification
+  // Manual Pricing System
+  manualPrice?: ManualPrice;
+  // Link Verification & Source
+  linkStatus?: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
+  supplierDomain?: string;
+  supplierName?: string;
+  supplierTier?: 1 | 2 | 3;
+  supplierCountry?: 'VN' | 'INT';
+  matchType?: 'best_match' | 'most_reliable' | 'alternative';
+  // Architecture, Subsystem & Compatibility
   subsystem?: string;
   category?: string;
   priority?: 'essential' | 'recommended' | 'optional';
-  priceInfo?: ProductPrice;
   compatibilityStatus?: 'compatible' | 'conditional' | 'incompatible' | 'unknown';
   compatibilityNote?: string;
   alreadyOwned?: boolean;
@@ -87,6 +144,11 @@ export function createNewBomItem(
     selectedLink: '',
     alternatives: [],
     note: '',
+    manualPrice: {
+      amount: null,
+      currency: 'VND',
+      entrySource: null,
+    },
+    linkStatus: 'unverified',
   };
 }
-

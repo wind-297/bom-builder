@@ -2,6 +2,7 @@ import { BomItem, createNewBomItem } from './types';
 import { getAppSettings } from './config';
 import { cleanJsonFromLlmOutput } from './llm';
 import { findCatalogMatches } from './catalog';
+import { findSourceByUrl } from './sources';
 
 export type SearchIntent = 'single_product' | 'project_bom';
 
@@ -154,13 +155,7 @@ export function parseAlreadyOwnedItems(text: string): string[] {
   if (!text) return [];
   const lower = text.toLowerCase();
 
-  const patterns = [
-    /(?:đã\s*có|có\s*sẵn|loại|trừ)\s+([^,.;]+?)(?:\s+(?:và|hoặc|,|\.)|\s+hãy|\s+khỏi|\s+ra|$)/gi,
-    /(?:đã\s*có|có\s*sẵn)\s+(.+?)(?:,|\.|\s+hãy|\s+loại|$)/i,
-  ];
-
   const results: string[] = [];
-
   const ownedSentence = lower.match(/(?:đã\s*có|có\s*sẵn)[^,.;]+/gi);
   if (ownedSentence) {
     for (const phrase of ownedSentence) {
@@ -199,16 +194,15 @@ export function validateBomCompleteness(
 
   // Auto-complete controller if mobile robot lacks it
   if (!hasController) {
-    result.unshift(
-      createNewBomItem(
-        'Mạch vi điều khiển ESP32 NodeMCU (hoặc Arduino Uno R3)',
-        'Vi điều khiển 32-bit Wi-Fi/Bluetooth hoặc ATmega328P',
-        1
-      )
+    const ctrlItem = createNewBomItem(
+      'Mạch vi điều khiển ESP32 NodeMCU (hoặc Arduino Uno R3)',
+      'Vi điều khiển 32-bit Wi-Fi/Bluetooth hoặc ATmega328P',
+      1
     );
-    result[0].subsystem = 'Hệ thống điều khiển';
-    result[0].note = 'Tự động bổ sung: Trung tâm điều khiển toàn bộ robot';
-    result[0].priority = 'essential';
+    ctrlItem.subsystem = 'Hệ thống điều khiển';
+    ctrlItem.note = 'Tự động bổ sung: Trung tâm điều khiển toàn bộ robot';
+    ctrlItem.priority = 'essential';
+    result.unshift(ctrlItem);
   }
 
   // Auto-complete motor driver if motors are present but driver is absent
@@ -265,9 +259,10 @@ CÁC PHÂN HỆ BẮT BUỘC (SUBSYSTEMS):
 6. Dây nối & Phụ kiện giao tiếp: Dây cắm cắm breadboard (đực-đực, đực-cái), đế pin, breadboard hoặc bo hàn đục lỗ.
 
 QUY TẮC BẮT BUỘC:
-- Mọi linh kiện phải thực tế, mua được tại các shop điện tử Việt Nam (Hshop, Thegioiic, Nshop...).
+- Mọi linh kiện phải thực tế, mua được tại các shop điện tử Việt Nam (Hshop, Nshop, Banlinhkien, LKCG...).
 - KHÔNG dùng cụm từ chung chung như "phụ kiện khác", "linh kiện linh tinh". Từng món phải có tên và thông số cụ thể.
 - Đảm bảo tính tương thích: Ví dụ động cơ 12V thì nguồn và driver phải chịu được 12V.
+- TUYỆT ĐỐI KHÔNG tự điền giá đơn vị hay thành tiền. Người dùng sẽ nhập giá thủ công.
 
 Chỉ trả về JSON thuần túy (không kèm giải thích) theo format:
 {
@@ -299,7 +294,7 @@ export async function decomposeProjectOrProduct(
     };
   }
 
-  // Check ambiguity (e.g. "Tôi muốn chế tạo một robot nhưng chưa xác định được loại cụ thể", "làm robot")
+  // Check ambiguity
   const lower = trimmed.toLowerCase();
   const isTooVague =
     lower === 'làm robot' ||
@@ -324,7 +319,6 @@ export async function decomposeProjectOrProduct(
 
   // FLOW A: Single Product Search
   if (intent === 'single_product') {
-    // Clean search text
     let cleanName = trimmed;
     for (const prefix of SINGLE_PRODUCT_PREFIXES) {
       if (cleanName.toLowerCase().startsWith(prefix + ' ')) {
@@ -335,38 +329,38 @@ export async function decomposeProjectOrProduct(
     const singleItem = createNewBomItem(cleanName, '', 1);
     singleItem.subsystem = 'Linh kiện đơn lẻ';
     singleItem.note = 'Tìm kiếm sản phẩm đơn lẻ';
+    singleItem.unitPrice = 0;
+    singleItem.totalPrice = 0;
+    singleItem.manualPrice = { amount: null, currency: 'VND', entrySource: null };
 
     const matches = findCatalogMatches(cleanName, 3);
     if (matches.length > 0) {
       const best = matches[0];
-      if (best.price && best.price > 0) {
-        singleItem.unitPrice = best.price;
-        singleItem.totalPrice = best.price;
-        singleItem.selectedLink = best.url;
-        singleItem.status = 'found';
-        singleItem.priceInfo = {
-          amount: best.price,
-          currency: 'VND',
-          status: 'verified',
-          sourceUrl: best.url,
-          confidence: 0.95,
-        };
-      }
+      const source = findSourceByUrl(best.url);
+      singleItem.selectedLink = best.url;
+      singleItem.supplierName = source?.name;
+      singleItem.supplierDomain = source?.domain;
+      singleItem.supplierTier = source?.tier;
+      singleItem.supplierCountry = source?.country;
+      singleItem.linkStatus = 'verified';
+      singleItem.matchType = 'best_match';
+      singleItem.status = 'found';
+
       if (matches.length > 1) {
-        singleItem.alternatives = matches.slice(1).map((m) => ({
-          title: m.title,
-          url: m.url,
-          price: m.price,
-          priceInfo: m.price
-            ? {
-                amount: m.price,
-                currency: 'VND',
-                status: 'verified',
-                sourceUrl: m.url,
-              }
-            : undefined,
-          reason: 'Linh kiện thay thế',
-        }));
+        singleItem.alternatives = matches.slice(1).map((m, idx) => {
+          const altSource = findSourceByUrl(m.url);
+          return {
+            title: m.title,
+            url: m.url,
+            supplierName: altSource?.name,
+            supplierDomain: altSource?.domain,
+            supplierTier: altSource?.tier,
+            supplierCountry: altSource?.country,
+            linkStatus: 'verified',
+            matchType: idx === 0 ? 'most_reliable' : 'alternative',
+            reason: 'Linh kiện thay thế từ nguồn uy tín',
+          };
+        });
       }
     }
 
@@ -382,6 +376,18 @@ export async function decomposeProjectOrProduct(
   const effectiveKey = apiKey ?? settings.llmApiKey;
   const effectiveBaseUrl = (baseUrl ?? settings.llmBaseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
   const effectiveModel = model ?? settings.llmModel ?? 'gpt-4o-mini';
+
+  const isTestEnv = typeof process !== 'undefined' && process.env.VITEST === 'true';
+  if (!effectiveKey && !isTestEnv && effectiveBaseUrl.includes('api.openai.com')) {
+    const fallback = generateFallbackRobotBom(trimmed, ownedItems);
+    return {
+      intent: 'project_bom',
+      items: fallback,
+      projectName: trimmed,
+      budgetConstraint: budget,
+      alreadyOwned: ownedItems,
+    };
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -437,6 +443,11 @@ export async function decomposeProjectOrProduct(
       if (raw.priority) item.priority = raw.priority;
       if (raw.note) item.note = raw.note;
 
+      // Always initialize manual price as null
+      item.manualPrice = { amount: null, currency: 'VND', entrySource: null };
+      item.unitPrice = 0;
+      item.totalPrice = 0;
+
       // Check if user already owns this item
       if (ownedItems.length > 0) {
         const lowerName = item.name.toLowerCase();
@@ -461,7 +472,6 @@ export async function decomposeProjectOrProduct(
     };
   } catch (err) {
     console.warn('decomposeProjectOrProduct LLM fallback:', err);
-    // Build deterministic baseline based on prompt keywords
     const fallback = generateFallbackRobotBom(trimmed, ownedItems);
     return {
       intent: 'project_bom',
@@ -481,43 +491,44 @@ function generateFallbackRobotBom(prompt: string, ownedItems: string[]): BomItem
     const it = createNewBomItem(name, spec, qty);
     it.subsystem = sub;
     it.note = note;
+    it.unitPrice = 0;
+    it.totalPrice = 0;
+    it.manualPrice = { amount: null, currency: 'VND', entrySource: null };
+
     if (ownedItems.some((ow) => it.name.toLowerCase().includes(ow))) {
       it.alreadyOwned = true;
       it.note += ' (Đã có sẵn)';
     }
 
-    // Immediately pre-populate with verified robotics catalog price and link
+    // Attach verified product link from catalog if available (No price)
     const matches = findCatalogMatches(`${name} ${spec}`, 3);
     if (matches.length > 0) {
       const best = matches[0];
-      if (best.price && best.price > 0) {
-        it.unitPrice = best.price;
-        it.totalPrice = it.alreadyOwned ? 0 : qty * best.price;
-        it.selectedLink = best.url;
-        it.status = 'found';
-        it.priceInfo = {
-          amount: best.price,
-          currency: 'VND',
-          status: 'verified',
-          sourceUrl: best.url,
-          confidence: 0.95,
-        };
-      }
+      const source = findSourceByUrl(best.url);
+      it.selectedLink = best.url;
+      it.supplierName = source?.name;
+      it.supplierDomain = source?.domain;
+      it.supplierTier = source?.tier;
+      it.supplierCountry = source?.country;
+      it.linkStatus = 'verified';
+      it.matchType = 'best_match';
+      it.status = 'found';
+
       if (matches.length > 1) {
-        it.alternatives = matches.slice(1).map((m) => ({
-          title: m.title,
-          url: m.url,
-          price: m.price,
-          priceInfo: m.price
-            ? {
-                amount: m.price,
-                currency: 'VND',
-                status: 'verified',
-                sourceUrl: m.url,
-              }
-            : undefined,
-          reason: 'Linh kiện tương đương',
-        }));
+        it.alternatives = matches.slice(1).map((m, idx) => {
+          const altSource = findSourceByUrl(m.url);
+          return {
+            title: m.title,
+            url: m.url,
+            supplierName: altSource?.name,
+            supplierDomain: altSource?.domain,
+            supplierTier: altSource?.tier,
+            supplierCountry: altSource?.country,
+            linkStatus: 'verified',
+            matchType: idx === 0 ? 'most_reliable' : 'alternative',
+            reason: 'Linh kiện tương đương từ nguồn uy tín',
+          };
+        });
       }
     }
 

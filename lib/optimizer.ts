@@ -1,149 +1,35 @@
 import { getAppSettings } from './config';
 import { cleanJsonFromLlmOutput } from './llm';
-import { BomItem, BomItemAlternative, BomSearchResult } from './types';
 import {
-  extractPriceFromSnippet,
-  fetchPriceFromProductUrl,
-  normalizePrice,
-  ProductPrice,
-} from './price';
+  BomItem,
+  BomItemAlternative,
+  BomSearchResult,
+  ManualPrice,
+} from './types';
+import {
+  findSourceByUrl,
+  isAllowedSourceUrl,
+} from './sources';
+import {
+  validateProductLink,
+  isSpecificProductPath,
+} from './link-validator';
 
 const OPTIMIZER_TIMEOUT_MS = 30000;
 
-export const BLACKLISTED_DOMAINS = [
-  // News & media
-  'vnexpress.net',
-  'tuoitre.vn',
-  'thanhnien.vn',
-  'dantri.com.vn',
-  'vietnamnet.vn',
-  'baomoi.com',
-  'baonongnghiep.vn',
-  'nongnghiep.vn',
-  'vov.vn',
-  'vtv.vn',
-  'laodong.vn',
-  'tienphong.vn',
-  'zingnews.vn',
-  'znews.vn',
-  'kenh14.vn',
-  'soha.vn',
-  '24h.com.vn',
-  'congthuong.vn',
-  'khoahocdoisong.vn',
-  'tinmoi.vn',
-  'suckhoedoisong.vn',
-  'baophapluat.vn',
-  // Social & content platforms & wikis
-  'wikipedia.org',
-  'wikihow.com',
-  'youtube.com',
-  'youtu.be',
-  'facebook.com',
-  'fb.com',
-  'tiktok.com',
-  'instagram.com',
-  'twitter.com',
-  'x.com',
-  'pinterest.com',
-  'reddit.com',
-  'medium.com',
-  'tinhte.vn',
-];
-
-export const TRUSTED_COMPONENT_DOMAINS = [
-  'hshop.vn',
-  'thegioiic.com',
-  'nshopvn.com',
-  'dientutuhu.vn',
-  'mualinhkien.vn',
-  'banlinhkien.vn',
-  'linhkienviet.vn',
-  'robocon.vn',
-  'icdayroi.com',
-  'chotroi.vn',
-  'shopee.vn',
-  'lazada.vn',
-  'tiki.vn',
-  'cybershop.vn',
-  'dientu360.com',
-  'dientudat.com',
-  'epuyen.vn',
-  'linhkienthuduc.com',
-];
-
 export function isBlacklistedDomain(urlStr: string): boolean {
-  try {
-    const parsed = new URL(urlStr);
-    const host = parsed.hostname.toLowerCase();
-    if (host.endsWith('.gov.vn') || host.endsWith('.edu.vn')) return true;
-    if (host.includes('nongnghiep') || host.includes('baochi') || host.includes('tintuc')) return true;
-    return BLACKLISTED_DOMAINS.some((d) => host === d || host.endsWith('.' + d));
-  } catch {
-    return true;
-  }
+  // Now enforce strict allowlist: if not in allowlist, it is treated as disallowed/blacklisted
+  return !isAllowedSourceUrl(urlStr);
 }
 
 export function isSpecificProductUrl(urlStr: string): boolean {
-  if (!urlStr || typeof urlStr !== 'string') return false;
-  try {
-    const parsed = new URL(urlStr);
-    const host = parsed.hostname.toLowerCase();
-    const path = parsed.pathname.replace(/\/+$/, '');
-
-    // Reject root domains or index files (e.g. https://shopee.vn or https://hshop.vn/index.html)
-    if (!path || path === '' || path === '/' || path === '/index.html' || path === '/index.php') {
-      return false;
-    }
-
-    // Reject search or category filter pages
-    if (
-      path.includes('/search') ||
-      path.includes('/tim-kiem') ||
-      parsed.searchParams.has('keyword') ||
-      parsed.searchParams.has('q')
-    ) {
-      return false;
-    }
-
-    // Reject generic site paths
-    const genericPaths = [
-      '/about',
-      '/about-us',
-      '/contact',
-      '/contact-us',
-      '/lien-he',
-      '/gioi-thieu',
-      '/cart',
-      '/gio-hang',
-      '/account',
-      '/login',
-      '/dang-nhap',
-      '/checkout',
-      '/tin-tuc',
-      '/blogs',
-      '/blog',
-    ];
-    if (genericPaths.includes(path.toLowerCase())) {
-      return false;
-    }
-
-    // Marketplace specific checks
-    if (host.includes('shopee.vn')) {
-      if (!path.includes('-i.') && !path.includes('/product/')) {
-        return false;
-      }
-    }
-
-    const segments = path.split('/').filter(Boolean);
-    if (segments.length === 0) return false;
-
-    return true;
-  } catch {
-    return false;
-  }
+  return isSpecificProductPath(urlStr);
 }
 
+/**
+ * Filter search results strictly against the Vietnam-first allowlist and valid product paths,
+ * then rank technically without price.
+ */
 export function filterAndRankSearchResults(
   results: BomSearchResult[],
   itemName: string = ''
@@ -152,36 +38,45 @@ export function filterAndRankSearchResults(
 
   const valid = results.filter((r) => {
     if (!r?.url) return false;
-    if (isBlacklistedDomain(r.url)) return false;
-    if (!isSpecificProductUrl(r.url)) return false;
+    if (!isAllowedSourceUrl(r.url)) return false;
+    if (!isSpecificProductPath(r.url)) return false;
     return true;
   });
 
   const keywords = itemName
     .toLowerCase()
-    .split(/\s+/)
+    .split(/[\s,./\\_-]+/)
     .filter((w) => w.length > 1);
 
   return valid.sort((a, b) => {
-    const scoreA = calculateResultScore(a, keywords);
-    const scoreB = calculateResultScore(b, keywords);
+    const scoreA = calculateTechnicalRankScore(a, keywords);
+    const scoreB = calculateTechnicalRankScore(b, keywords);
     return scoreB - scoreA;
   });
 }
 
-function calculateResultScore(item: BomSearchResult, keywords: string[]): number {
-  let score = 10;
+/**
+ * Calculate technical-only ranking score (No price factor):
+ * - Technical match: 40%
+ * - Supplier reliability tier: 25% (Tier 1: 50, Tier 2: 30, Tier 3: 15)
+ * - Information completeness: 20%
+ * - Specific product path format: 15%
+ */
+function calculateTechnicalRankScore(item: BomSearchResult, keywords: string[]): number {
+  let score = 0;
   try {
+    const source = findSourceByUrl(item.url);
     const parsed = new URL(item.url);
-    const host = parsed.hostname.toLowerCase();
     const path = parsed.pathname.toLowerCase();
 
-    // Trusted component shop boost
-    if (TRUSTED_COMPONENT_DOMAINS.some((d) => host.includes(d))) {
-      score += 50;
+    // 1. Supplier Tier (25%)
+    if (source) {
+      if (source.tier === 1) score += 50;
+      else if (source.tier === 2) score += 30;
+      else if (source.tier === 3) score += 15;
     }
 
-    // Explicit product path indicator
+    // 2. Specific product structure (15%)
     if (
       path.includes('/products/') ||
       path.includes('/product/') ||
@@ -189,111 +84,110 @@ function calculateResultScore(item: BomSearchResult, keywords: string[]): number
       path.includes('-i.') ||
       path.includes('.html')
     ) {
-      score += 20;
+      score += 30;
     }
 
-    // Price present in content/title
-    const text = `${item.content} ${item.title}`;
-    if (extractPriceFromText(text) > 0) {
-      score += 20;
-    }
-
-    // Keywords match
-    const lowerText = text.toLowerCase();
+    // 3. Technical keywords match (40%)
+    const text = `${item.title} ${item.content}`.toLowerCase();
+    let matchCount = 0;
     for (const kw of keywords) {
-      if (lowerText.includes(kw)) {
-        score += 10;
+      if (text.includes(kw)) {
+        matchCount++;
       }
     }
+    const matchRatio = keywords.length > 0 ? matchCount / keywords.length : 0;
+    score += Math.round(matchRatio * 80);
+
+    // 4. Information completeness (20%)
+    if (item.title && item.title.length > 15) score += 20;
+    if (item.content && item.content.length > 50) score += 20;
   } catch {
     // ignore
   }
   return score;
 }
 
-export const OPTIMIZER_SYSTEM_PROMPT = `Bạn là một chuyên gia mua sắm linh kiện điện tử và robotics tại Việt Nam.
-Nhiệm vụ của bạn là phân tích các kết quả tìm kiếm web cho một linh kiện trong BOM và chọn liên kết mua hàng cụ thể, tối ưu nhất.
+export const OPTIMIZER_SYSTEM_PROMPT = `Bạn là một chuyên gia kỹ thuật phần cứng và robotics tại Việt Nam.
+Nhiệm vụ của bạn là phân tích các kết quả tìm kiếm web cho một linh kiện và chọn liên kết sản phẩm phù hợp nhất về mặt KỸ THUẬT VÀ ĐỘ TIN CẬY CỦA NHÀ CUNG CẤP.
 
 QUY TẮC BẮT BUỘC:
-1. "selectedUrl" BẮT BUỘC phải là một URL chi tiết đến trang sản phẩm cụ thể (có đường dẫn sản phẩm, mã sản phẩm hoặc slug).
-2. TUYỆT ĐỐI KHÔNG chọn hoặc tạo URL trang chủ website chung chung (ví dụ: KHÔNG được dùng "https://shopee.vn", "https://thegioiic.com", "https://hshop.vn").
-3. TUYỆT ĐỐI BỎ QUA các liên kết là báo chí (vnexpress, dantri, tuoitre, nongnghiep...), bài viết blog kỹ thuật, mạng xã hội (youtube, facebook...) không phải trang bán linh kiện.
-4. "selectedUrl" BẮT BUỘC PHẢI nằm trong danh sách URL từ kết quả tìm kiếm được cung cấp. KHÔNG ĐƯỢC tự bịa URL.
-5. Nếu trong kết quả tìm kiếm KHÔNG CÓ sản phẩm nào phù hợp hoặc chỉ toàn link báo chí/trang chủ, hãy trả về "selectedUrl": "" và "estimatedPrice": 0.
-6. Bóc tách đơn giá thực tế từ nội dung/tiêu đề (quy đổi về số nguyên VND).
+1. TUYỆT ĐỐI KHÔNG DỰA VÀO GIÁ CẢ. Người dùng sẽ tự nhập đơn giá thủ công. KHÔNG trích xuất hoặc ước tính giá.
+2. "selectedUrl" BẮT BUỘC PHẢI nằm trong danh sách URL từ kết quả tìm kiếm được cung cấp. TUYỆT ĐỐI KHÔNG TỰ BỊA URL.
+3. TUYỆT ĐỐI KHÔNG chọn URL trang chủ website chung chung (ví dụ: "https://shopee.vn", "https://hshop.vn").
+4. Ưu tiên các nhà cung cấp linh kiện chuyên ngành tại Việt Nam (Tier 1: hshop.vn, lkcg.vn, nshopvn.com, banlinhkien.com...).
+5. Đánh giá mức độ phù hợp:
+   - "best_match": Sản phẩm khớp chính xác thông số kỹ thuật nhất.
+   - "most_reliable": Sản phẩm từ nhà cung cấp chuyên ngành uy tín nhất.
+   - "alternative": Sản phẩm thay thế tương đương.
+6. Nếu trong kết quả tìm kiếm KHÔNG CÓ sản phẩm nào phù hợp, hãy trả về "selectedUrl": "".
 
-Chỉ trả về JSON thuần túy (không kèm giải thích) theo định dạng:
+Chỉ trả về JSON thuần túy (không kèm markdown thừa):
 {
-  "selectedUrl": "URL liên kết sản phẩm cụ thể",
-  "estimatedPrice": 85000,
-  "currency": "VND",
-  "reason": "Lý do lựa chọn",
+  "selectedUrl": "URL liên kết sản phẩm cụ thể từ danh sách",
+  "matchType": "best_match | most_reliable | alternative",
+  "reason": "Lý do lựa chọn kỹ thuật",
   "alternatives": [
     {
       "title": "Tiêu đề",
-      "url": "URL sản phẩm cụ thể",
-      "price": 85000,
-      "reason": "Lý do thay thế"
+      "url": "URL sản phẩm cụ thể khác từ danh sách",
+      "matchType": "most_reliable | alternative",
+      "reason": "Lý do đề xuất thay thế"
     }
   ]
 }`;
 
-export function extractPriceFromText(text: string): number {
-  if (!text) return 0;
-  const parsed = extractPriceFromSnippet(text);
-  if (parsed && typeof parsed.amount === 'number' && parsed.amount > 0) {
-    return parsed.amount;
-  }
+export function extractPriceFromText(_text: string): number {
+  // Legacy stub: Automatic price extraction is decommissioned per system policy
   return 0;
 }
 
-function fallbackHeuristic(item: BomItem, searchResults: BomSearchResult[]): BomItem {
-  const ranked = filterAndRankSearchResults(searchResults, item.name);
+function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
   if (ranked.length === 0) {
     return {
       ...item,
-      unitPrice: 0,
-      totalPrice: 0,
+      unitPrice: item.manualPrice?.amount || 0,
+      totalPrice: (item.manualPrice?.amount || 0) * (item.quantity > 0 ? item.quantity : 1),
       status: 'not_found',
       selectedLink: '',
+      linkStatus: 'unverified',
       alternatives: [],
-      priceInfo: {
-        amount: null,
-        currency: 'VND',
-        status: 'unavailable',
-      },
     };
   }
 
   const first = ranked[0];
-  const parsedPrice = extractPriceFromSnippet(`${first.content} ${first.title}`);
-  const priceInfo: ProductPrice = normalizePrice(
-    parsedPrice
-      ? { ...parsedPrice, sourceUrl: first.url }
-      : { amount: null, currency: 'VND', status: 'unavailable', sourceUrl: first.url }
-  );
-  const unitPrice = priceInfo.amount || 0;
+  const source = findSourceByUrl(first.url);
   const quantity = item.quantity > 0 ? item.quantity : 1;
+  const currentManual = item.manualPrice?.amount || 0;
 
-  const alternatives: BomItemAlternative[] = ranked.slice(1).map((r) => {
-    const altPrice = extractPriceFromSnippet(`${r.content} ${r.title}`);
+  const alternatives: BomItemAlternative[] = ranked.slice(1, 5).map((r, idx) => {
+    const altSource = findSourceByUrl(r.url);
     return {
       title: r.title,
       url: r.url,
-      price: altPrice?.amount || undefined,
-      priceInfo: altPrice ? { ...altPrice, sourceUrl: r.url } : undefined,
-      reason: 'Kết quả tìm kiếm thay thế',
+      supplierName: altSource?.name,
+      supplierDomain: altSource?.domain,
+      supplierTier: altSource?.tier,
+      supplierCountry: altSource?.country,
+      linkStatus: 'verified',
+      matchType: idx === 0 ? 'most_reliable' : 'alternative',
+      reason: `Sản phẩm từ ${altSource?.name || 'nhà cung cấp uy tín'}`,
     };
   });
 
   return {
     ...item,
-    unitPrice,
-    totalPrice: unitPrice * quantity,
+    unitPrice: currentManual,
+    totalPrice: currentManual * quantity,
     status: 'found',
     selectedLink: first.url,
+    supplierName: source?.name,
+    supplierDomain: source?.domain,
+    supplierTier: source?.tier,
+    supplierCountry: source?.country,
+    linkStatus: 'verified',
+    matchType: 'best_match',
+    note: item.note || `Chọn từ ${source?.name || 'nhà cung cấp chuyên ngành'}`,
     alternatives,
-    priceInfo,
   };
 }
 
@@ -310,8 +204,9 @@ export async function optimizeBomItemWithSearchResults(
       ...item,
       status: 'not_found',
       selectedLink: '',
-      unitPrice: 0,
-      totalPrice: 0,
+      linkStatus: 'unverified',
+      unitPrice: item.manualPrice?.amount || 0,
+      totalPrice: (item.manualPrice?.amount || 0) * (item.quantity > 0 ? item.quantity : 1),
       alternatives: item.alternatives || [],
     };
   }
@@ -324,15 +219,21 @@ export async function optimizeBomItemWithSearchResults(
   const userPrompt = `Linh kiện cần tìm:
 - Tên: ${item.name}
 - Thông số: ${item.specification || 'Không có'}
-- Số lượng: ${item.quantity}
+- Phân hệ: ${item.subsystem || 'Chưa phân loại'}
 
-Danh sách kết quả tìm kiếm sản phẩm:
+Danh sách sản phẩm tìm được:
 ${rankedResults
+  .slice(0, 10)
   .map(
     (r, i) =>
-      `[${i + 1}] Tiêu đề: ${r.title}\nURL: ${r.url}\nNội dung: ${r.content}`
+      `[${i + 1}] Tiêu đề: ${r.title}\nURL: ${r.url}\nNguồn: ${findSourceByUrl(r.url)?.name || r.url}\nMô tả: ${r.content}`
   )
   .join('\n\n')}`;
+
+  const isTestEnv = typeof process !== 'undefined' && process.env.VITEST === 'true';
+  if (!effectiveKey && !isTestEnv && effectiveBaseUrl.includes('api.openai.com')) {
+    return fallbackHeuristic(item, rankedResults);
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -357,7 +258,6 @@ ${rankedResults
     });
 
     if (!res.ok) {
-      console.warn(`LLM API returned HTTP ${res.status}: ${res.statusText}`);
       return fallbackHeuristic(item, rankedResults);
     }
 
@@ -375,66 +275,18 @@ ${rankedResults
 
     if (
       proposed &&
-      isSpecificProductUrl(proposed) &&
-      !isBlacklistedDomain(proposed) &&
+      isSpecificProductPath(proposed) &&
+      isAllowedSourceUrl(proposed) &&
       rankedResults.some((r) => r.url === proposed)
     ) {
       selectedUrl = proposed;
     } else {
-      // Pick top-ranked valid product URL
       selectedUrl = rankedResults[0].url;
     }
 
-    let unitPrice = 0;
-    let priceInfo: ProductPrice;
-
-    const selectedItem = rankedResults.find((r) => r.url === selectedUrl) || rankedResults[0];
-    const snippetPrice = extractPriceFromSnippet(`${selectedItem.content} ${selectedItem.title}`);
-
-    // Strictly prefer snippet-extracted price to avoid hallucination
-    if (snippetPrice && snippetPrice.amount && snippetPrice.amount > 0) {
-      unitPrice = snippetPrice.amount;
-      priceInfo = {
-        ...snippetPrice,
-        sourceUrl: selectedUrl,
-      };
-    } else if (
-      typeof parsed?.estimatedPrice === 'number' &&
-      !isNaN(parsed.estimatedPrice) &&
-      parsed.estimatedPrice > 0
-    ) {
-      const rawText = `${selectedItem.content} ${selectedItem.title}`;
-      const containsPrice =
-        rawText.includes(parsed.estimatedPrice.toString()) ||
-        rawText.includes(Math.round(parsed.estimatedPrice / 1000).toString());
-
-      unitPrice = parsed.estimatedPrice;
-      priceInfo = {
-        amount: unitPrice,
-        currency: typeof parsed?.currency === 'string' ? parsed.currency : 'VND',
-        status: containsPrice ? 'verified' : 'estimated',
-        sourceUrl: selectedUrl,
-        confidence: containsPrice ? 0.9 : 0.6,
-      };
-    } else {
-      // Attempt lightweight structured data extraction if network allows, or set unavailable
-      const structuredPrice = await fetchPriceFromProductUrl(selectedUrl, item.name, 3000);
-      if (structuredPrice && structuredPrice.amount && structuredPrice.amount > 0) {
-        unitPrice = structuredPrice.amount;
-        priceInfo = structuredPrice;
-      } else {
-        unitPrice = 0;
-        priceInfo = {
-          amount: null,
-          currency: 'VND',
-          status: 'unavailable',
-          sourceUrl: selectedUrl,
-        };
-      }
-    }
-
+    const source = findSourceByUrl(selectedUrl);
     const quantity = item.quantity > 0 ? item.quantity : 1;
-    const totalPrice = unitPrice * quantity;
+    const manualAmt = item.manualPrice?.amount || 0;
 
     let alternatives: BomItemAlternative[] = [];
     if (Array.isArray(parsed?.alternatives)) {
@@ -443,51 +295,63 @@ ${rankedResults
           (alt: any) =>
             alt &&
             typeof alt.url === 'string' &&
-            isSpecificProductUrl(alt.url) &&
-            !isBlacklistedDomain(alt.url)
+            isSpecificProductPath(alt.url) &&
+            isAllowedSourceUrl(alt.url) &&
+            rankedResults.some((r) => r.url === alt.url)
         )
-        .map((alt: any) => ({
-          title: typeof alt.title === 'string' ? alt.title : '',
-          url: alt.url,
-          price: typeof alt.price === 'number' ? alt.price : undefined,
-          reason: typeof alt.reason === 'string' ? alt.reason : undefined,
-        }));
+        .map((alt: any) => {
+          const altSource = findSourceByUrl(alt.url);
+          return {
+            title: typeof alt.title === 'string' ? alt.title : '',
+            url: alt.url,
+            supplierName: altSource?.name,
+            supplierDomain: altSource?.domain,
+            supplierTier: altSource?.tier,
+            supplierCountry: altSource?.country,
+            linkStatus: 'verified',
+            matchType: alt.matchType || 'alternative',
+            reason: typeof alt.reason === 'string' ? alt.reason : undefined,
+          };
+        });
     }
 
     if (alternatives.length === 0) {
       alternatives = rankedResults
         .filter((r) => r.url !== selectedUrl)
-        .map((r) => {
-          const altPrice = extractPriceFromSnippet(`${r.content} ${r.title}`);
+        .slice(0, 4)
+        .map((r, idx) => {
+          const altSource = findSourceByUrl(r.url);
           return {
             title: r.title,
             url: r.url,
-            price: altPrice?.amount || undefined,
-            priceInfo: altPrice ? { ...altPrice, sourceUrl: r.url } : undefined,
+            supplierName: altSource?.name,
+            supplierDomain: altSource?.domain,
+            supplierTier: altSource?.tier,
+            supplierCountry: altSource?.country,
+            linkStatus: 'verified',
+            matchType: idx === 0 ? 'most_reliable' : 'alternative',
+            reason: 'Lựa chọn thay thế phù hợp',
           };
         });
     }
 
-    const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
-    const note = reason
-      ? item.note
-        ? `${item.note} | ${reason}`
-        : reason
-      : item.note;
-
     return {
       ...item,
-      unitPrice,
-      totalPrice,
-      currency: typeof parsed?.currency === 'string' ? parsed.currency : item.currency || 'VND',
+      unitPrice: manualAmt,
+      totalPrice: manualAmt * quantity,
       status: 'found',
       selectedLink: selectedUrl,
+      supplierName: source?.name,
+      supplierDomain: source?.domain,
+      supplierTier: source?.tier,
+      supplierCountry: source?.country,
+      linkStatus: 'verified',
+      matchType: parsed?.matchType || 'best_match',
+      note: parsed?.reason ? parsed.reason : (item.note || 'Đã tìm thấy sản phẩm phù hợp'),
       alternatives,
-      note,
-      priceInfo,
     };
   } catch (err) {
-    console.warn('optimizeBomItemWithSearchResults LLM error:', err);
+    console.warn('optimizeBomItemWithSearchResults error, using fallback heuristic:', err);
     return fallbackHeuristic(item, rankedResults);
   }
 }

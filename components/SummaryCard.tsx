@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Package, CheckCircle2, Banknote } from 'lucide-react';
+import { Package, CheckCircle2, Banknote, AlertCircle } from 'lucide-react';
 import { BomItem } from '../lib/types';
 import { calculateBomSummary, formatVnd, BomSummary } from './BomTable';
 
@@ -24,7 +24,11 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
       totalItems: 0,
       foundItems: 0,
       pendingItems: 0,
+      unpricedItems: 0,
+      pricedItems: 0,
       totalEstimatedBudget: 0,
+      isBudgetComplete: true,
+      hasUnavailablePrice: false,
     });
 
   const percentage =
@@ -53,7 +57,7 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
         <p className="mt-1 text-xs text-slate-500">
           {summary.pendingItems > 0
             ? `${summary.pendingItems} linh kiện đang chờ tìm link`
-            : 'Đã sẵn sàng'}
+            : 'Đã sẵn sàng trong BOM'}
         </p>
       </div>
 
@@ -87,11 +91,13 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
         </div>
       </div>
 
-      {/* 3. Tổng ngân sách ước tính / tạm tính */}
+      {/* 3. Tổng ngân sách (Tính theo giá người dùng nhập) */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 shadow-sm backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            {summary.hasUnavailablePrice ? 'Tổng chi phí tạm tính' : 'Tổng ngân sách ước tính'}
+            {summary.isBudgetComplete
+              ? 'Tổng ngân sách (Đầy đủ)'
+              : 'Chi phí đã nhập giá'}
           </span>
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
             <Banknote className="h-4 w-4" />
@@ -103,9 +109,21 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
           </span>
           <span className="text-xs font-medium text-slate-400">₫</span>
         </div>
-        {budgetConstraint && budgetConstraint > 0 ? (
+
+        {summary.unpricedItems > 0 ? (
+          <div className="mt-1 flex items-center gap-1 text-xs text-amber-400 font-medium">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>Chưa đầy đủ (còn {summary.unpricedItems} món chưa nhập giá)</span>
+          </div>
+        ) : (
+          <p className="mt-1 text-xs text-emerald-400 font-medium">
+            Tất cả linh kiện đã được nhập giá ✓
+          </p>
+        )}
+
+        {budgetConstraint && budgetConstraint > 0 && (
           <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Mục tiêu: {formatVnd(budgetConstraint)}₫</span>
+            <span className="text-slate-400">Ngân sách mục tiêu: {formatVnd(budgetConstraint)}₫</span>
             {summary.totalEstimatedBudget <= budgetConstraint ? (
               <span className="text-emerald-400 font-medium">Trong ngân sách ✓</span>
             ) : (
@@ -114,12 +132,6 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
               </span>
             )}
           </div>
-        ) : (
-          <p className="mt-1 text-xs text-slate-500">
-            {summary.hasUnavailablePrice
-              ? 'Tạm tính (một số linh kiện chưa có giá xác thực)'
-              : 'Định dạng VND theo giá tìm kiếm tốt nhất'}
-          </p>
         )}
       </div>
     </div>

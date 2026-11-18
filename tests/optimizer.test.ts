@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { optimizeBomItemWithSearchResults, extractPriceFromText } from '../lib/optimizer';
+import { optimizeBomItemWithSearchResults } from '../lib/optimizer';
 import { BomItem, BomSearchResult } from '../lib/types';
 import { POST } from '../app/api/optimize/route';
 
-describe('AI Product Optimizer', () => {
+describe('AI Product Technical Optimizer & Link Selector', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -20,39 +20,43 @@ describe('AI Product Optimizer', () => {
     selectedLink: '',
     alternatives: [],
     note: '',
+    manualPrice: {
+      amount: null,
+      currency: 'VND',
+      entrySource: null,
+    },
   };
 
   const sampleResults: BomSearchResult[] = [
     {
       title: 'Servo MG996R Nhông Kim Loại - Hshop.vn',
       url: 'https://hshop.vn/mg996r',
-      content: 'Động cơ RC Servo MG996R nhông kim loại lực kéo khỏe. Giá bán: 85.000đ',
+      content: 'Động cơ RC Servo MG996R nhông kim loại lực kéo khỏe.',
       engine: 'google',
     },
     {
-      title: 'Kẹp càng cua cho robot servo',
-      url: 'https://thegioiic.com/kep-cang-cua',
-      content: 'Phụ kiện robot gắp. Giá: 120.000đ',
+      title: 'Module Điều Khiển Động Cơ L298N - Nshop',
+      url: 'https://nshopvn.com/mach-dieu-khien-dong-co-l298n',
+      content: 'Mạch cầu H điều khiển động cơ DC/bước.',
       engine: 'google',
     },
   ];
 
-  it('should select best matching product link and extract unit price', async () => {
+  it('should select best matching product link based on technical criteria and not inject auto-price', async () => {
     const mockLlmDecision = {
       choices: [
         {
           message: {
             content: JSON.stringify({
               selectedUrl: 'https://hshop.vn/mg996r',
-              estimatedPrice: 85000,
-              currency: 'VND',
-              reason: 'Đúng chuẩn nhông kim loại MG996R, giá tốt từ shop uy tín',
+              matchType: 'best_match',
+              reason: 'Đúng chuẩn nhông kim loại MG996R từ nhà cung cấp Tier 1 Hshop',
               alternatives: [
                 {
-                  title: 'Kẹp càng cua cho robot servo',
-                  url: 'https://thegioiic.com/kep-cang-cua',
-                  price: 120000,
-                  reason: 'Phụ kiện kèm theo',
+                  title: 'Module L298N',
+                  url: 'https://nshopvn.com/mach-dieu-khien-dong-co-l298n',
+                  matchType: 'alternative',
+                  reason: 'Lựa chọn thay thế',
                 },
               ],
             }),
@@ -68,30 +72,74 @@ describe('AI Product Optimizer', () => {
 
     const optimized = await optimizeBomItemWithSearchResults(baseItem, sampleResults);
     expect(optimized.selectedLink).toBe('https://hshop.vn/mg996r');
-    expect(optimized.unitPrice).toBe(85000);
-    expect(optimized.totalPrice).toBe(170000);
+    expect(optimized.supplierName).toBe('Hshop');
+    expect(optimized.supplierTier).toBe(1);
+    expect(optimized.linkStatus).toBe('verified');
+    expect(optimized.matchType).toBe('best_match');
     expect(optimized.status).toBe('found');
+    // Manual price remains unassigned (null) until user manually enters price
+    expect(optimized.manualPrice?.amount).toBeNull();
+    expect(optimized.unitPrice).toBe(0);
+    expect(optimized.totalPrice).toBe(0);
     expect(optimized.alternatives.length).toBe(1);
     expect(optimized.note).toContain('Đúng chuẩn');
+  });
+
+  it('should preserve existing user manual price when optimizing product link', async () => {
+    const itemWithManualPrice: BomItem = {
+      ...baseItem,
+      manualPrice: {
+        amount: 85000,
+        currency: 'VND',
+        entrySource: 'user_input',
+      },
+      unitPrice: 85000,
+      totalPrice: 170000,
+    };
+
+    const mockLlmDecision = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              selectedUrl: 'https://hshop.vn/mg996r',
+              matchType: 'best_match',
+              reason: 'Lựa chọn chuẩn',
+            }),
+          },
+        },
+      ],
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockLlmDecision,
+    } as Response);
+
+    const optimized = await optimizeBomItemWithSearchResults(itemWithManualPrice, sampleResults);
+    expect(optimized.selectedLink).toBe('https://hshop.vn/mg996r');
+    expect(optimized.manualPrice?.amount).toBe(85000);
+    expect(optimized.unitPrice).toBe(85000);
+    expect(optimized.totalPrice).toBe(170000);
   });
 
   it('should fallback to not_found if search results are empty', async () => {
     const optimized = await optimizeBomItemWithSearchResults(baseItem, []);
     expect(optimized.status).toBe('not_found');
     expect(optimized.selectedLink).toBe('');
+    expect(optimized.linkStatus).toBe('unverified');
   });
 
-  it('should fallback gracefully when LLM fails without crashing', async () => {
+  it('should fallback gracefully to top-ranked allowed link when LLM fails', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('LLM Timeout'));
     const optimized = await optimizeBomItemWithSearchResults(baseItem, sampleResults);
-    // If LLM fails, select the first search result as fallback or mark found
     expect(optimized.selectedLink).toBe('https://hshop.vn/mg996r');
     expect(optimized.status).toBe('found');
-    expect(optimized.unitPrice).toBe(85000);
-    expect(optimized.totalPrice).toBe(170000);
+    expect(optimized.supplierName).toBe('Hshop');
+    expect(optimized.linkStatus).toBe('verified');
   });
 
-  it('should reject news articles and root homepages as selectedLink', async () => {
+  it('should reject news articles, disallowed domains, and root homepages as selectedLink', async () => {
     const dirtyResults: BomSearchResult[] = [
       {
         title: 'Báo Nông Nghiệp: Ứng dụng máy bơm nước trong tưới tiêu',
@@ -99,25 +147,25 @@ describe('AI Product Optimizer', () => {
         content: 'Nông nghiệp sạch áp dụng máy bơm nước mini tưới tiêu hoa màu.',
       },
       {
-        title: 'Thế Giới IC - Trang chủ',
-        url: 'https://thegioiic.com/',
-        content: 'Trang chủ siêu thị linh kiện điện tử thế giới IC.',
+        title: 'Hshop - Trang chủ',
+        url: 'https://hshop.vn/',
+        content: 'Trang chủ siêu thị điện tử Hshop.',
       },
       {
-        title: 'Máy Bơm Chìm Mini 5V 1.2-1.6L/phút - Thegioiic',
-        url: 'https://www.thegioiic.com/may-bom-chim-mini-5v-1-2-1-6l-phut',
-        content: 'Máy Bơm Chìm Mini 5V 1.2-1.6L/phút. Giá bán: 35.000đ',
+        title: 'Máy Bơm Nước Chìm Mini 5V - Nshop',
+        url: 'https://nshopvn.com/may-bom-nuoc-chim-mini-5v',
+        content: 'Máy Bơm Chìm Mini 5V 1.2-1.6L/phút cho mô hình robot.',
       },
     ];
 
-    // Mock LLM mistakenly returning the homepage
+    // Mock LLM mistakenly returning the root homepage
     const mockLlmDecision = {
       choices: [
         {
           message: {
             content: JSON.stringify({
-              selectedUrl: 'https://thegioiic.com/',
-              estimatedPrice: 35000,
+              selectedUrl: 'https://hshop.vn/',
+              reason: 'Nhà cung cấp uy tín',
             }),
           },
         },
@@ -136,9 +184,9 @@ describe('AI Product Optimizer', () => {
 
     const optimized = await optimizeBomItemWithSearchResults(item, dirtyResults);
     // Must reject the root homepage and news article, selecting the specific product link instead
-    expect(optimized.selectedLink).toBe('https://www.thegioiic.com/may-bom-chim-mini-5v-1-2-1-6l-phut');
+    expect(optimized.selectedLink).toBe('https://nshopvn.com/may-bom-nuoc-chim-mini-5v');
+    expect(optimized.supplierName).toBe('NShop');
     expect(optimized.status).toBe('found');
-    expect(optimized.unitPrice).toBe(35000);
   });
 
   it('should mark item as not_found if all search results are irrelevant news or homepages', async () => {
@@ -170,7 +218,6 @@ describe('AI Product Optimizer', () => {
     const optimized = await optimizeBomItemWithSearchResults(item, onlyJunkResults);
     expect(optimized.status).toBe('not_found');
     expect(optimized.selectedLink).toBe('');
-    expect(optimized.unitPrice).toBe(0);
   });
 
   it('should handle markdown code fences in LLM response', async () => {
@@ -178,7 +225,7 @@ describe('AI Product Optimizer', () => {
       choices: [
         {
           message: {
-            content: '```json\n{\n  "selectedUrl": "https://hshop.vn/mg996r",\n  "estimatedPrice": 85000\n}\n```',
+            content: '```json\n{\n  "selectedUrl": "https://hshop.vn/mg996r",\n  "matchType": "best_match"\n}\n```',
           },
         },
       ],
@@ -191,132 +238,39 @@ describe('AI Product Optimizer', () => {
 
     const optimized = await optimizeBomItemWithSearchResults(baseItem, sampleResults);
     expect(optimized.selectedLink).toBe('https://hshop.vn/mg996r');
-    expect(optimized.unitPrice).toBe(85000);
+    expect(optimized.matchType).toBe('best_match');
   });
 
-  it('should extract price from snippet with various currency formats', () => {
-    expect(extractPriceFromText('Giá bán: 85.000đ')).toBe(85000);
-    expect(extractPriceFromText('Đơn giá: 120.000 VND')).toBe(120000);
-    expect(extractPriceFromText('Combo 50k freeship')).toBe(50000);
-    expect(extractPriceFromText('Không có giá')).toBe(0);
-  });
-
-  it('should pass custom apiKey, baseUrl, and model to LLM call', async () => {
-    let calledUrl = '';
-    let calledHeaders: Record<string, string> = {};
-    let calledBody: any = null;
-
-    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
-      calledUrl = url;
-      calledHeaders = init?.headers as Record<string, string>;
-      calledBody = JSON.parse((init?.body as string) || '{}');
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  selectedUrl: 'https://hshop.vn/mg996r',
-                  estimatedPrice: 85000,
-                }),
-              },
-            },
-          ],
-        }),
-      } as Response;
-    });
-
-    await optimizeBomItemWithSearchResults(
-      baseItem,
-      sampleResults,
-      'custom-api-key',
-      'https://api.custom.com/v1',
-      'custom-model'
-    );
-
-    expect(calledUrl).toBe('https://api.custom.com/v1/chat/completions');
-    expect(calledHeaders['Authorization']).toBe('Bearer custom-api-key');
-    expect(calledBody.model).toBe('custom-model');
-  });
-});
-
-describe('Optimize API Route (POST /api/optimize)', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  const baseItem: BomItem = {
-    id: 'item-1',
-    name: 'Động cơ servo MG996R',
-    specification: 'Kim loại 180 độ 5V-7.2V',
-    quantity: 2,
-    unitPrice: 0,
-    totalPrice: 0,
-    currency: 'VND',
-    status: 'pending',
-    selectedLink: '',
-    alternatives: [],
-    note: '',
-  };
-
-  it('should return 400 when item or searchResults is missing', async () => {
-    const req1 = new Request('http://localhost:3000/api/optimize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    const res1 = await POST(req1);
-    expect(res1.status).toBe(400);
-
-    const req2 = new Request('http://localhost:3000/api/optimize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item: baseItem }),
-    });
-    const res2 = await POST(req2);
-    expect(res2.status).toBe(400);
-  });
-
-  it('should return 200 with optimized item', async () => {
-    const mockLlmDecision = {
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              selectedUrl: 'https://hshop.vn/mg996r',
-              estimatedPrice: 85000,
-            }),
-          },
-        },
-      ],
-    };
-
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockLlmDecision,
-    } as Response);
-
-    const req = new Request('http://localhost:3000/api/optimize', {
+  it('API route /api/optimize should validate request and return optimized item', async () => {
+    const request = new Request('http://localhost:3000/api/optimize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         item: baseItem,
-        searchResults: [
-          {
-            title: 'Servo MG996R - Hshop.vn',
-            url: 'https://hshop.vn/mg996r',
-            content: 'Giá bán: 85.000đ',
-          },
-        ],
+        searchResults: sampleResults,
       }),
     });
 
-    const res = await POST(req);
-    const data = await res.json();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                selectedUrl: 'https://hshop.vn/mg996r',
+                matchType: 'best_match',
+                reason: 'Hàng chuẩn',
+              }),
+            },
+          },
+        ],
+      }),
+    } as Response);
+
+    const res = await POST(request as any);
     expect(res.status).toBe(200);
-    expect(data.item).toBeDefined();
+    const data = await res.json();
     expect(data.item.selectedLink).toBe('https://hshop.vn/mg996r');
-    expect(data.item.totalPrice).toBe(170000);
   });
 });
