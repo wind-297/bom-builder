@@ -50,7 +50,7 @@ describe('AI Product Technical Optimizer & Link Selector', () => {
             content: JSON.stringify({
               selectedUrl: 'https://hshop.vn/mg996r',
               matchType: 'best_match',
-              reason: 'Đúng chuẩn nhông kim loại MG996R từ nhà cung cấp Tier 1 Hshop',
+              reason: 'Đúng chuẩn nhông kim loại MG996R từ nhà cung cấp Tier 2 Hshop',
               alternatives: [
                 {
                   title: 'Module L298N',
@@ -73,7 +73,7 @@ describe('AI Product Technical Optimizer & Link Selector', () => {
     const optimized = await optimizeBomItemWithSearchResults(baseItem, sampleResults);
     expect(optimized.selectedLink).toBe('https://hshop.vn/mg996r');
     expect(optimized.supplierName).toBe('Hshop');
-    expect(optimized.supplierTier).toBe(1);
+    expect(optimized.supplierTier).toBe(2);
     expect(optimized.linkStatus).toBe('verified');
     expect(optimized.matchType).toBe('best_match');
     expect(optimized.status).toBe('found');

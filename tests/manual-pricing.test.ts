@@ -143,12 +143,12 @@ describe('Manual Pricing & Link Verification Engine (RoboBOM Rework)', () => {
   });
 
   describe('4. Technical-Only Ranking (No Price Bias)', () => {
-    it('should rank Tier 1 Vietnamese specialized stores higher than generic marketplaces when technical specs match', () => {
+    it('should rank Shopee Vietnam (Tier 1) higher than Tier 2 specialized stores when technical specs match', () => {
       const candidates = [
         {
-          title: 'Động cơ GA25 12V 100rpm Shopee giá rẻ',
+          title: 'Động cơ GA25 12V 100rpm Shopee chất lượng cao',
           url: 'https://shopee.vn/dong-co-ga25-i.123.456',
-          content: 'Động cơ GA25 12V giảm tốc chất lượng cao',
+          content: 'Động cơ DC giảm tốc GA25 12V chính hãng bánh răng thép siêu bền',
         },
         {
           title: 'Động Cơ DC Giảm Tốc GA25 12VDC Hshop',
@@ -159,9 +159,9 @@ describe('Manual Pricing & Link Verification Engine (RoboBOM Rework)', () => {
 
       const ranked = filterAndRankSearchResults(candidates, 'Động cơ GA25 12V');
       expect(ranked.length).toBe(2);
-      // Hshop (Tier 1) should rank before Shopee (Tier 2) due to higher reliability weight
-      expect(ranked[0].url).toContain('hshop.vn');
-      expect(ranked[1].url).toContain('shopee.vn');
+      // Shopee (Tier 1) should rank before Hshop (Tier 2) per user priority policy
+      expect(ranked[0].url).toContain('shopee.vn');
+      expect(ranked[1].url).toContain('hshop.vn');
     });
   });
 });

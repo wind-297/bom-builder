@@ -19,11 +19,11 @@ export interface BomItemAlternative {
   sourceDomain?: string;
   sourceName?: string;
   country?: 'VN' | 'INT';
-  tier?: 1 | 2 | 3;
+  tier?: 1 | 2 | 3 | 4;
   supplierDomain?: string;
   supplierName?: string;
   supplierCountry?: 'VN' | 'INT';
-  supplierTier?: 1 | 2 | 3;
+  supplierTier?: 1 | 2 | 3 | 4;
   linkStatus?: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
   matchType?: 'best_match' | 'most_reliable' | 'alternative';
   reason?: string;
@@ -45,7 +45,7 @@ export interface SearchProduct {
     domain: string;
     country: 'VN' | 'INT';
     type: string;
-    tier?: 1 | 2 | 3;
+    tier?: 1 | 2 | 3 | 4;
   };
   productUrl: string;
   linkVerification: ProductLinkVerification;
@@ -90,7 +90,7 @@ export interface BomItem {
   linkStatus?: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
   supplierDomain?: string;
   supplierName?: string;
-  supplierTier?: 1 | 2 | 3;
+  supplierTier?: 1 | 2 | 3 | 4;
   supplierCountry?: 'VN' | 'INT';
   matchType?: 'best_match' | 'most_reliable' | 'alternative';
   searchLog?: SearchLog;

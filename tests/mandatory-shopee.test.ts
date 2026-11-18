@@ -33,12 +33,13 @@ describe('Mandatory Shopee Vietnam Search Policy', () => {
       expect(queries.some((q) => /12V/i.test(q))).toBe(true);
     });
 
-    it('includes mandatory shopeeQueries in buildMultiQueryPlan alongside Tier 1 stores', () => {
+    it('includes mandatory shopeeQueries as Tier 1 alongside Tier 2 specialized stores in buildMultiQueryPlan', () => {
       const plan = buildMultiQueryPlan('Driver TB6612FNG', '1.2A dual channel');
       expect(plan.shopeeQueries.length).toBeGreaterThanOrEqual(1);
       expect(plan.shopeeQueries[0]).toContain('site:shopee.vn');
-      expect(plan.tier1Queries.some((q) => q.includes('site:hshop.vn'))).toBe(true);
-      expect(plan.tier1Queries.some((q) => q.includes('site:lkcg.vn'))).toBe(true);
+      expect(plan.tier1Queries[0]).toContain('site:shopee.vn');
+      expect(plan.tier2Queries.some((q) => q.includes('site:hshop.vn'))).toBe(true);
+      expect(plan.tier2Queries.some((q) => q.includes('site:lkcg.vn'))).toBe(true);
     });
   });
 
@@ -276,9 +277,10 @@ describe('Mandatory Shopee Vietnam Search Policy', () => {
       expect(alts.some((a) => a.url.includes('shopee.vn'))).toBe(true);
       expect(alts.some((a) => a.supplierDomain === 'shopee.vn')).toBe(true);
       expect(alts.some((a) => a.supplierTier === 1)).toBe(true);
+      expect(alts.some((a) => a.supplierTier === 2)).toBe(true);
     });
 
-    it('preserves Manual Pricing (unitPrice = 0, no auto price) when optimizing with Shopee results', async () => {
+    it('prioritizes Shopee (Tier 1) as selectedLink and preserves Manual Pricing (unitPrice = 0)', async () => {
       global.fetch = vi.fn().mockRejectedValue(new Error('Fallback to heuristic'));
       const item = createNewBomItem('Driver TB6612FNG', '2 kênh', 2);
       const searchResults: BomSearchResult[] = [
@@ -298,7 +300,10 @@ describe('Mandatory Shopee Vietnam Search Policy', () => {
       expect(optimized.status).toBe('found');
       expect(optimized.unitPrice).toBe(0);
       expect(optimized.totalPrice).toBe(0);
-      expect(optimized.alternatives.some((a) => a.url.includes('shopee.vn'))).toBe(true);
+      // Shopee is Tier 1 -> selected as primary link, Hshop (Tier 2) in alternatives
+      expect(optimized.selectedLink).toContain('shopee.vn');
+      expect(optimized.supplierTier).toBe(1);
+      expect(optimized.alternatives.some((a) => a.url.includes('hshop.vn'))).toBe(true);
     });
   });
 

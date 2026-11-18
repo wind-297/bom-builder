@@ -1,6 +1,6 @@
 export type SourceCountry = 'VN' | 'INT';
 export type SourceCategory = 'electronics_store' | 'marketplace' | 'robotics_supplier';
-export type SourceTier = 1 | 2 | 3;
+export type SourceTier = 1 | 2 | 3 | 4;
 
 export interface SearchSource {
   id: string;
@@ -15,17 +15,30 @@ export interface SearchSource {
 }
 
 export const SEARCH_SOURCES: SearchSource[] = [
-  // TIER 1 — Vietnamese Electronics & Robotics Stores
+  // TIER 1 — Shopee Việt Nam (Nguồn ưu tiên số 1)
+  {
+    id: 'shopee',
+    domain: 'shopee.vn',
+    name: 'Shopee Việt Nam',
+    country: 'VN',
+    category: 'marketplace',
+    tier: 1,
+    enabled: true,
+    supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'mechanical', 'wiring', 'robotics'],
+    defaultTrustScore: 100,
+  },
+
+  // TIER 2 — Vietnamese Electronics & Robotics Stores
   {
     id: 'lkcg',
     domain: 'lkcg.vn',
     name: 'Linh kiện Cầu Giấy',
     country: 'VN',
     category: 'electronics_store',
-    tier: 1,
+    tier: 2,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'mechanical', 'wiring', 'ic'],
-    defaultTrustScore: 95,
+    defaultTrustScore: 90,
   },
   {
     id: 'hshop',
@@ -33,10 +46,10 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'Hshop',
     country: 'VN',
     category: 'robotics_supplier',
-    tier: 1,
+    tier: 2,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'mechanical', 'wiring', 'robotics'],
-    defaultTrustScore: 98,
+    defaultTrustScore: 92,
   },
   {
     id: 'nshop',
@@ -44,10 +57,10 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'NShop',
     country: 'VN',
     category: 'electronics_store',
-    tier: 1,
+    tier: 2,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'mechanical', 'wiring'],
-    defaultTrustScore: 95,
+    defaultTrustScore: 90,
   },
   {
     id: 'banlinhkien',
@@ -55,10 +68,10 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'Banlinhkien',
     country: 'VN',
     category: 'electronics_store',
-    tier: 1,
+    tier: 2,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'mechanical', 'wiring', 'ic'],
-    defaultTrustScore: 92,
+    defaultTrustScore: 88,
   },
   {
     id: 'cungcaplinhkien',
@@ -66,34 +79,23 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'Linh kiện điện tử A to Z',
     country: 'VN',
     category: 'electronics_store',
-    tier: 1,
-    enabled: true,
-    supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'ic'],
-    defaultTrustScore: 90,
-  },
-
-  // TIER 2 — Vietnamese E-commerce Marketplaces
-  {
-    id: 'shopee',
-    domain: 'shopee.vn',
-    name: 'Shopee Việt Nam',
-    country: 'VN',
-    category: 'marketplace',
     tier: 2,
     enabled: true,
-    supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'mechanical', 'wiring', 'robotics'],
-    defaultTrustScore: 72,
+    supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'ic'],
+    defaultTrustScore: 85,
   },
+
+  // TIER 3 — Other Vietnamese E-commerce Marketplaces
   {
     id: 'lazada',
     domain: 'lazada.vn',
     name: 'Lazada Việt Nam',
     country: 'VN',
     category: 'marketplace',
-    tier: 2,
+    tier: 3,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'motor', 'driver', 'power', 'mechanical', 'wiring', 'robotics'],
-    defaultTrustScore: 70,
+    defaultTrustScore: 75,
   },
   {
     id: 'tiki',
@@ -101,20 +103,20 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'Tiki Việt Nam',
     country: 'VN',
     category: 'marketplace',
-    tier: 2,
+    tier: 3,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'power', 'electronics'],
     defaultTrustScore: 75,
   },
 
-  // TIER 3 — International Electronics & Robotics Suppliers (Fallback only)
+  // TIER 4 — International Electronics & Robotics Suppliers (Fallback only)
   {
     id: 'digikey',
     domain: 'digikey.com',
     name: 'DigiKey',
     country: 'INT',
     category: 'electronics_store',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['ic', 'mcu', 'sensor', 'driver', 'power'],
     defaultTrustScore: 96,
@@ -125,7 +127,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'DigiKey Vietnam',
     country: 'INT',
     category: 'electronics_store',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['ic', 'mcu', 'sensor', 'driver', 'power'],
     defaultTrustScore: 96,
@@ -136,7 +138,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'Mouser Electronics',
     country: 'INT',
     category: 'electronics_store',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['ic', 'mcu', 'sensor', 'driver', 'power'],
     defaultTrustScore: 95,
@@ -147,7 +149,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'Pololu Robotics',
     country: 'INT',
     category: 'robotics_supplier',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['robotics', 'motor', 'driver', 'mechanical', 'sensor'],
     defaultTrustScore: 95,
@@ -158,7 +160,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'LCSC Electronics',
     country: 'INT',
     category: 'electronics_store',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['ic', 'mcu', 'power', 'driver'],
     defaultTrustScore: 92,
@@ -169,7 +171,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'DFRobot',
     country: 'INT',
     category: 'robotics_supplier',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['robotics', 'sensor', 'mcu', 'motor', 'mechanical'],
     defaultTrustScore: 93,
@@ -180,7 +182,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'Adafruit',
     country: 'INT',
     category: 'robotics_supplier',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'maker', 'robotics'],
     defaultTrustScore: 94,
@@ -191,7 +193,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'SparkFun',
     country: 'INT',
     category: 'robotics_supplier',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['mcu', 'sensor', 'maker', 'robotics'],
     defaultTrustScore: 94,
@@ -202,7 +204,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'RobotShop',
     country: 'INT',
     category: 'robotics_supplier',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['robotics', 'motor', 'mechanical', 'driver'],
     defaultTrustScore: 92,
@@ -213,7 +215,7 @@ export const SEARCH_SOURCES: SearchSource[] = [
     name: 'TME Electronic Components',
     country: 'INT',
     category: 'electronics_store',
-    tier: 3,
+    tier: 4,
     enabled: true,
     supportedCategories: ['ic', 'mcu', 'sensor', 'power', 'wiring'],
     defaultTrustScore: 92,

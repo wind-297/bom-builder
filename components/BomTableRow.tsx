@@ -187,29 +187,29 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     const displayName = name || (domain ? domain.replace('www.', '') : '');
     if (!displayName) return null;
 
-    if (domain?.includes('shopee.vn') || name?.toLowerCase().includes('shopee')) {
+    if (tier === 1 || domain?.includes('shopee.vn') || name?.toLowerCase().includes('shopee')) {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-300 border border-orange-500/30">
-          <span>Shopee Việt Nam</span>
-        </span>
-      );
-    }
-    if (tier === 1) {
-      return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-          <Store className="w-3 h-3 text-emerald-400" />
-          <span>{displayName} (VN)</span>
+          <span>Shopee VN (Tier 1 — Ưu tiên)</span>
         </span>
       );
     }
     if (tier === 2) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+          <Store className="w-3 h-3 text-emerald-400" />
+          <span>{displayName} (Tier 2 VN)</span>
+        </span>
+      );
+    }
+    if (tier === 3) {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
           <span>Sàn TMĐT {displayName}</span>
         </span>
       );
     }
-    if (tier === 3 || country === 'INT') {
+    if (tier === 4 || country === 'INT') {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30">
           <Globe className="w-3 h-3 text-purple-400" />
@@ -543,23 +543,23 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
       {/* Expanded alternatives list (Grouped by Source Category per Mandatory Policy) */}
       {showAlternatives && item.alternatives && item.alternatives.length > 0 && (() => {
         const shopeeAlts = item.alternatives.filter(
-          (a) => a.url.includes('shopee.vn') || a.supplierDomain?.includes('shopee.vn')
+          (a) => a.supplierTier === 1 || a.url.includes('shopee.vn') || a.supplierDomain?.includes('shopee.vn')
         );
         const specializedAlts = item.alternatives.filter(
-          (a) => a.supplierTier === 1 && !a.url.includes('shopee.vn') && !a.supplierDomain?.includes('shopee.vn')
+          (a) => (a.supplierTier === 2 || a.tier === 2) && !a.url.includes('shopee.vn') && !a.supplierDomain?.includes('shopee.vn')
         );
         const otherMarketAlts = item.alternatives.filter(
-          (a) => a.supplierTier === 2 && !a.url.includes('shopee.vn') && !a.supplierDomain?.includes('shopee.vn')
+          (a) => (a.supplierTier === 3 || a.tier === 3) && !a.url.includes('shopee.vn') && !a.supplierDomain?.includes('shopee.vn')
         );
         const intlAlts = item.alternatives.filter(
-          (a) => a.supplierTier === 3 || a.supplierCountry === 'INT'
+          (a) => a.supplierTier === 4 || a.tier === 4 || a.supplierCountry === 'INT' || a.country === 'INT'
         );
 
         const groups = [
-          { title: 'Shopee Việt Nam (Bắt buộc)', items: shopeeAlts, badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
-          { title: 'Cửa hàng linh kiện chuyên ngành Việt Nam', items: specializedAlts, badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
-          { title: 'Các sàn thương mại điện tử khác', items: otherMarketAlts, badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
-          { title: 'Nhà cung cấp quốc tế', items: intlAlts, badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
+          { title: 'Shopee Việt Nam (Tier 1 — Ưu tiên số 1)', items: shopeeAlts, badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
+          { title: 'Cửa hàng linh kiện chuyên ngành (Tier 2 VN)', items: specializedAlts, badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
+          { title: 'Các sàn thương mại điện tử khác (Tier 3)', items: otherMarketAlts, badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+          { title: 'Nhà cung cấp quốc tế (Tier 4)', items: intlAlts, badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
         ].filter((g) => g.items.length > 0);
 
         return (

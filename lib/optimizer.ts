@@ -69,11 +69,12 @@ function calculateTechnicalRankScore(item: BomSearchResult, keywords: string[]):
     const parsed = new URL(item.url);
     const path = parsed.pathname.toLowerCase();
 
-    // 1. Supplier Tier (25%)
+    // 1. Supplier Tier (25%) - Tier 1 (Shopee VN) is prioritized #1
     if (source) {
-      if (source.tier === 1) score += 50;
-      else if (source.tier === 2) score += 30;
-      else if (source.tier === 3) score += 15;
+      if (source.tier === 1) score += 65; // Shopee Việt Nam: Ưu tiên số 1 cao nhất
+      else if (source.tier === 2) score += 35; // Cửa hàng linh kiện chuyên ngành (Tier 2)
+      else if (source.tier === 3) score += 20; // Sàn TMĐT khác
+      else if (source.tier === 4) score += 10; // Quốc tế
     }
 
     // 2. Specific product structure (15%)
@@ -114,7 +115,7 @@ QUY TẮC BẮT BUỘC:
 1. TUYỆT ĐỐI KHÔNG DỰA VÀO GIÁ CẢ. Người dùng sẽ tự nhập đơn giá thủ công. KHÔNG trích xuất hoặc ước tính giá.
 2. "selectedUrl" BẮT BUỘC PHẢI nằm trong danh sách URL từ kết quả tìm kiếm được cung cấp. TUYỆT ĐỐI KHÔNG TỰ BỊA URL.
 3. TUYỆT ĐỐI KHÔNG chọn URL trang chủ website chung chung (ví dụ: "https://shopee.vn", "https://hshop.vn").
-4. Đảm bảo cân nhắc cả sản phẩm từ Shopee Việt Nam (shopee.vn) và các nhà cung cấp linh kiện chuyên ngành tại Việt Nam (Tier 1: lkcg.vn, hshop.vn, nshopvn.com, banlinhkien.com...). Luôn giữ các lựa chọn từ Shopee trong danh sách "alternatives" nếu có trong kết quả tìm kiếm.
+4. ƯU TIÊN SỐ 1 CHO SHOPEE VIỆT NAM (Tier 1: shopee.vn): Nếu trong kết quả tìm kiếm có sản phẩm từ Shopee Việt Nam đáp ứng yêu cầu kỹ thuật, BẮT BUỘC PHẢI ƯU TIÊN CHỌN LINK SHOPEE làm "selectedUrl". Các cửa hàng linh kiện chuyên ngành (Tier 2: lkcg.vn, hshop.vn, nshopvn.com, banlinhkien.com...) đưa vào "alternatives".
 5. Đánh giá mức độ phù hợp:
    - "best_match": Sản phẩm khớp chính xác thông số kỹ thuật nhất.
    - "most_reliable": Sản phẩm từ nhà cung cấp chuyên ngành uy tín nhất.
@@ -150,34 +151,34 @@ export function buildDiverseAlternatives(
 
   // Group by category/source
   const shopeeList: BomSearchResult[] = [];
-  const tier1List: BomSearchResult[] = [];
+  const tier2StoresList: BomSearchResult[] = [];
   const otherMarketplaces: BomSearchResult[] = [];
   const intlList: BomSearchResult[] = [];
 
   for (const r of remaining) {
     const src = findSourceByUrl(r.url);
-    if (src?.id === 'shopee') {
+    if (src?.tier === 1 || src?.id === 'shopee') {
       shopeeList.push(r);
-    } else if (src?.tier === 1) {
-      tier1List.push(r);
     } else if (src?.tier === 2) {
+      tier2StoresList.push(r);
+    } else if (src?.tier === 3) {
       otherMarketplaces.push(r);
     } else {
       intlList.push(r);
     }
   }
 
-  // Interleave to guarantee both Shopee and Tier 1 specialized store representation
+  // Interleave: Shopee (Tier 1) first, then Tier 2 specialized stores, then other marketplaces, then international
   const selectedList: BomSearchResult[] = [];
   const maxEach = 3;
 
-  // Add top Shopee results
+  // Add top Shopee results (Tier 1)
   selectedList.push(...shopeeList.slice(0, maxEach));
-  // Add top Tier 1 specialized results
-  selectedList.push(...tier1List.slice(0, maxEach));
-  // Add other marketplaces (Lazada, Tiki)
+  // Add top Tier 2 specialized store results
+  selectedList.push(...tier2StoresList.slice(0, maxEach));
+  // Add other marketplaces (Tier 3: Lazada, Tiki)
   selectedList.push(...otherMarketplaces.slice(0, 2));
-  // Add international if any
+  // Add international if any (Tier 4)
   selectedList.push(...intlList.slice(0, 2));
 
   // If still fewer than 5, fill from remaining
@@ -220,7 +221,12 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
     };
   }
 
-  const first = ranked[0];
+  // Priority 1: Always prefer Shopee (Tier 1) as the primary link if available
+  const shopeeMatch = ranked.find((r) => {
+    const s = findSourceByUrl(r.url);
+    return s?.tier === 1 || s?.id === 'shopee';
+  });
+  const first = shopeeMatch || ranked[0];
   const source = findSourceByUrl(first.url);
   const quantity = item.quantity > 0 ? item.quantity : 1;
   const currentManual = item.manualPrice?.amount || 0;

@@ -14,9 +14,15 @@ import {
 } from '../lib/link-validator';
 
 describe('Search Sources & Domain Allowlist', () => {
-  it('should include all required Tier 1 Vietnamese electronics stores', () => {
+  it('should include Shopee Vietnam as Tier 1 prioritized source', () => {
     const tier1 = getEnabledSources(1);
     const domains = tier1.map((s) => s.domain);
+    expect(domains).toContain('shopee.vn');
+  });
+
+  it('should include required Tier 2 Vietnamese electronics stores', () => {
+    const tier2 = getEnabledSources(2);
+    const domains = tier2.map((s) => s.domain);
     expect(domains).toContain('lkcg.vn');
     expect(domains).toContain('hshop.vn');
     expect(domains).toContain('nshopvn.com');
@@ -24,17 +30,16 @@ describe('Search Sources & Domain Allowlist', () => {
     expect(domains).toContain('cungcaplinhkien.vn');
   });
 
-  it('should include Tier 2 Vietnamese marketplaces', () => {
-    const tier2 = getEnabledSources(2);
-    const domains = tier2.map((s) => s.domain);
-    expect(domains).toContain('shopee.vn');
+  it('should include Tier 3 other Vietnamese marketplaces', () => {
+    const tier3 = getEnabledSources(3);
+    const domains = tier3.map((s) => s.domain);
     expect(domains).toContain('lazada.vn');
     expect(domains).toContain('tiki.vn');
   });
 
-  it('should include Tier 3 International suppliers', () => {
-    const tier3 = getEnabledSources(3);
-    const domains = tier3.map((s) => s.domain);
+  it('should include Tier 4 International suppliers', () => {
+    const tier4 = getEnabledSources(4);
+    const domains = tier4.map((s) => s.domain);
     expect(domains).toContain('digikey.com');
     expect(domains).toContain('mouser.com');
     expect(domains).toContain('pololu.com');
@@ -44,10 +49,10 @@ describe('Search Sources & Domain Allowlist', () => {
     const src1 = findSourceByUrl('https://hshop.vn/products/kit-esp32');
     expect(src1).not.toBeNull();
     expect(src1?.id).toBe('hshop');
-    expect(src1?.tier).toBe(1);
+    expect(src1?.tier).toBe(2);
 
     const src2 = findSourceByDomain('shopee.vn');
-    expect(src2?.tier).toBe(2);
+    expect(src2?.tier).toBe(1);
 
     expect(isAllowedSourceUrl('https://shopee.vn/product-i.123')).toBe(true);
     expect(isAllowedSourceUrl('https://vnexpress.net/tin-tuc')).toBe(false);
