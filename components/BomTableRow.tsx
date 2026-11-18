@@ -190,7 +190,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     if (tier === 1 || domain?.includes('shopee.vn') || name?.toLowerCase().includes('shopee')) {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-300 border border-orange-500/30">
-          <span>Shopee VN (Tier 1 — Ưu tiên)</span>
+          <span>Shopee VN (Ưu tiên)</span>
         </span>
       );
     }
@@ -198,7 +198,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
           <Store className="w-3 h-3 text-emerald-400" />
-          <span>{displayName} (Tier 2 VN)</span>
+          <span>{displayName}</span>
         </span>
       );
     }
@@ -556,10 +556,10 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
         );
 
         const groups = [
-          { title: 'Shopee Việt Nam (Tier 1 — Ưu tiên số 1)', items: shopeeAlts, badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
-          { title: 'Cửa hàng linh kiện chuyên ngành (Tier 2 VN)', items: specializedAlts, badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
-          { title: 'Các sàn thương mại điện tử khác (Tier 3)', items: otherMarketAlts, badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
-          { title: 'Nhà cung cấp quốc tế (Tier 4)', items: intlAlts, badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
+          { title: 'Shopee Việt Nam (Ưu tiên số 1)', items: shopeeAlts, badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
+          { title: 'Cửa hàng linh kiện chuyên ngành', items: specializedAlts, badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
+          { title: 'Các sàn thương mại điện tử khác', items: otherMarketAlts, badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+          { title: 'Nhà cung cấp quốc tế', items: intlAlts, badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
         ].filter((g) => g.items.length > 0);
 
         return (

@@ -102,9 +102,11 @@ export function isSpecificProductPath(urlStr: string): boolean {
       return false;
     }
 
-    // Shopee specific product pattern
+    // Shopee specific product pattern: MUST have product id and shop id
     if (host.includes('shopee.vn')) {
-      return path.includes('-i.') || path.includes('/product/');
+      const isShopeeProduct = /-i\.\d+\.\d+/.test(path) || /\/product\/\d+\/\d+/.test(path);
+      const isNotSearchOrCategory = !path.includes('/search') && !path.includes('/list/') && !path.includes('/find_similar');
+      return isShopeeProduct && isNotSearchOrCategory;
     }
 
     // Lazada specific product pattern
@@ -340,17 +342,21 @@ export async function validateProductLink(
         html = await res.text();
       }
 
-      // Extract Title
+      // Extract Title & Meta
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       const title = titleMatch ? titleMatch[1].replace(/\s+/g, ' ').trim() : '';
-      result.productTitle = title;
+      const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+      const metaTitle = ogTitleMatch ? ogTitleMatch[1].replace(/\s+/g, ' ').trim() : '';
+      result.productTitle = metaTitle || title || '';
 
       // Identity Verification if expected product provided
+      // Note: Include urlStr because SPAs like Shopee put product slug and model directly in the URL!
       if (expectedProductName) {
-        const check = verifyProductIdentity(title + ' ' + html.slice(0, 3000), expectedProductName, expectedModel);
+        const textToCheck = `${result.productTitle} ${urlStr} ${html.slice(0, 5000)}`;
+        const check = verifyProductIdentity(textToCheck, expectedProductName, expectedModel);
         if (!check.isMatch) {
           result.linkStatus = 'unverified';
-          result.verificationReason = `Tiêu đề trang "${title}" không khớp với linh kiện đang tìm`;
+          result.verificationReason = `Tiêu đề trang hoặc URL không khớp với linh kiện đang tìm`;
           return result;
         }
       }

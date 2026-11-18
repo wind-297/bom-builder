@@ -419,7 +419,7 @@ export async function searchWithMandatoryShopee(
 
   let statusNotes: string | undefined;
   if (shopeeProductsRetained > 0) {
-    statusNotes = `Đã tìm thấy ${shopeeProductsRetained} sản phẩm Shopee VN (Tier 1) và ${specializedProductsRetained} sản phẩm từ cửa hàng chuyên ngành (Tier 2).`;
+    statusNotes = `Đã tìm thấy ${shopeeProductsRetained} sản phẩm Shopee VN và ${specializedProductsRetained} sản phẩm từ cửa hàng chuyên ngành.`;
   } else if (shopeeRequestErrors.length === shopeeQueries.length && shopeeQueries.length > 0) {
     statusNotes = `Đã gửi truy vấn Shopee qua SearXNG nhưng gặp lỗi kết nối (${shopeeRequestErrors[0]}).`;
   } else if (rawShopeeCount > 0 && shopeeProductsRetained === 0) {
@@ -448,13 +448,18 @@ export async function searchWithMandatoryShopee(
 
 /**
  * Backward-compatible entry point returning BomSearchResult[].
- * Always executes mandatory Shopee Vietnam search + parallel Tier 1 stores.
+ * Queries SearXNG directly and filters to allowed product pages.
  */
 export async function searchSearxng(
   query: string,
   customUrl?: string,
   specification?: string
 ): Promise<BomSearchResult[]> {
-  const { results } = await searchWithMandatoryShopee(query, customUrl, specification);
-  return results;
+  const trimmed = query?.trim();
+  if (!trimmed) return [];
+
+  const baseUrl = (customUrl || getAppSettings().searxngUrl || 'http://localhost:8080').replace(/\/+$/, '');
+  const productQuery = buildProductSearchQuery(trimmed, specification);
+  const resp = await querySearxngEndpoint(baseUrl, productQuery);
+  return filterAllowedProductResults(resp.results);
 }

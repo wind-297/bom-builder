@@ -411,8 +411,8 @@ export async function decomposeProjectOrProduct(
       signal: AbortSignal.timeout(30000),
     });
 
-    if (!res.ok) {
-      throw new Error(`LLM API returned HTTP ${res.status}`);
+    if (!res || !res.ok) {
+      throw new Error(`LLM API returned HTTP ${res?.status ?? 'error'}`);
     }
 
     const data = await res.json();

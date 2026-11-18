@@ -30,7 +30,7 @@ export const TIER1_STORE_ADAPTERS: StoreAdapter[] = [
         const html = await res.text();
         const results: BomSearchResult[] = [];
 
-        // Match product titles & links in Haravan product card
+        // Match product titles & links in Haravan/Bizweb product card
         const cardRegex =
           /class=["'][^"']*product-name[^"']*["'][^>]*>[\s\S]{0,250}?href=["']([^"']+)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi;
         let m;
@@ -39,7 +39,25 @@ export const TIER1_STORE_ADAPTERS: StoreAdapter[] = [
           const rawTitle = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           if (href && rawTitle.length >= 4) {
             const fullUrl = href.startsWith('http') ? href : `https://hshop.vn${href.startsWith('/') ? '' : '/'}${href}`;
-            if (isSpecificProductPath(fullUrl)) {
+            if (isSpecificProductPath(fullUrl) && !results.some((r) => r.url === fullUrl)) {
+              results.push({
+                title: rawTitle,
+                url: fullUrl,
+                content: `${rawTitle} - Hshop Robotics & Electronics`,
+                engine: 'Hshop.vn',
+              });
+            }
+          }
+        }
+
+        // Also match <h3><a href="...">Title</a></h3> in Hshop search results
+        const h3Regex = /<h3[^>]*>\s*<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+        while ((m = h3Regex.exec(html)) !== null) {
+          const href = m[1];
+          const rawTitle = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (href && rawTitle.length >= 4) {
+            const fullUrl = href.startsWith('http') ? href : `https://hshop.vn${href.startsWith('/') ? '' : '/'}${href}`;
+            if (isSpecificProductPath(fullUrl) && !results.some((r) => r.url === fullUrl)) {
               results.push({
                 title: rawTitle,
                 url: fullUrl,

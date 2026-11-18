@@ -115,7 +115,7 @@ QUY TẮC BẮT BUỘC:
 1. TUYỆT ĐỐI KHÔNG DỰA VÀO GIÁ CẢ. Người dùng sẽ tự nhập đơn giá thủ công. KHÔNG trích xuất hoặc ước tính giá.
 2. "selectedUrl" BẮT BUỘC PHẢI nằm trong danh sách URL từ kết quả tìm kiếm được cung cấp. TUYỆT ĐỐI KHÔNG TỰ BỊA URL.
 3. TUYỆT ĐỐI KHÔNG chọn URL trang chủ website chung chung (ví dụ: "https://shopee.vn", "https://hshop.vn").
-4. ƯU TIÊN SỐ 1 CHO SHOPEE VIỆT NAM (Tier 1: shopee.vn): Nếu trong kết quả tìm kiếm có sản phẩm từ Shopee Việt Nam đáp ứng yêu cầu kỹ thuật, BẮT BUỘC PHẢI ƯU TIÊN CHỌN LINK SHOPEE làm "selectedUrl". Các cửa hàng linh kiện chuyên ngành (Tier 2: lkcg.vn, hshop.vn, nshopvn.com, banlinhkien.com...) đưa vào "alternatives".
+4. ƯU TIÊN SỐ 1 CHO SHOPEE VIỆT NAM (shopee.vn): Nếu trong kết quả tìm kiếm có sản phẩm từ Shopee Việt Nam đáp ứng yêu cầu kỹ thuật, BẮT BUỘC PHẢI ƯU TIÊN CHỌN LINK SHOPEE làm "selectedUrl". Các cửa hàng linh kiện chuyên ngành (hshop.vn, nshopvn.com, lkcg.vn, banlinhkien.com...) đưa vào "alternatives".
 5. Đánh giá mức độ phù hợp:
    - "best_match": Sản phẩm khớp chính xác thông số kỹ thuật nhất.
    - "most_reliable": Sản phẩm từ nhà cung cấp chuyên ngành uy tín nhất.
@@ -341,6 +341,18 @@ ${rankedResults
       selectedUrl = proposed;
     } else {
       selectedUrl = rankedResults[0].url;
+    }
+
+    // Strict Shopee priority guarantee: If any Shopee product exists in ranked results, prioritize it as selectedUrl
+    const shopeeCandidate = rankedResults.find((r) => {
+      const s = findSourceByUrl(r.url);
+      return s?.id === 'shopee' || s?.tier === 1;
+    });
+    if (shopeeCandidate) {
+      const chosenSource = findSourceByUrl(selectedUrl);
+      if (chosenSource?.id !== 'shopee') {
+        selectedUrl = shopeeCandidate.url;
+      }
     }
 
     const source = findSourceByUrl(selectedUrl);
