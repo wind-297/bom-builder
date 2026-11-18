@@ -187,6 +187,13 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     const displayName = name || (domain ? domain.replace('www.', '') : '');
     if (!displayName) return null;
 
+    if (domain?.includes('shopee.vn') || name?.toLowerCase().includes('shopee')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-300 border border-orange-500/30">
+          <span>Shopee Việt Nam</span>
+        </span>
+      );
+    }
     if (tier === 1) {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
@@ -533,65 +540,120 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
         </td>
       </tr>
 
-      {/* Expanded alternatives list (No price displayed!) */}
-      {showAlternatives && item.alternatives && item.alternatives.length > 0 && (
-        <tr className="bg-slate-900/60 border-b border-slate-800">
-          <td colSpan={9} className="px-6 py-3">
-            <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Các nguồn mua thay thế ({item.alternatives.length}):
-              </div>
-              <div className="space-y-2">
-                {item.alternatives.map((alt, altIdx) => (
-                  <div
-                    key={altIdx}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-900/70 p-2.5 text-xs border border-slate-800/80"
-                  >
-                    <div className="flex flex-col flex-1 min-w-[220px]">
-                      <div className="flex items-center gap-2">
-                        {renderSupplierBadge(
-                          alt.supplierTier,
-                          alt.supplierCountry,
-                          alt.supplierName,
-                          alt.supplierDomain
-                        )}
-                        {renderLinkVerificationBadge(alt.linkStatus)}
-                      </div>
+      {/* Expanded alternatives list (Grouped by Source Category per Mandatory Policy) */}
+      {showAlternatives && item.alternatives && item.alternatives.length > 0 && (() => {
+        const shopeeAlts = item.alternatives.filter(
+          (a) => a.url.includes('shopee.vn') || a.supplierDomain?.includes('shopee.vn')
+        );
+        const specializedAlts = item.alternatives.filter(
+          (a) => a.supplierTier === 1 && !a.url.includes('shopee.vn') && !a.supplierDomain?.includes('shopee.vn')
+        );
+        const otherMarketAlts = item.alternatives.filter(
+          (a) => a.supplierTier === 2 && !a.url.includes('shopee.vn') && !a.supplierDomain?.includes('shopee.vn')
+        );
+        const intlAlts = item.alternatives.filter(
+          (a) => a.supplierTier === 3 || a.supplierCountry === 'INT'
+        );
 
-                      <div className="flex items-center gap-1.5 font-medium text-slate-200 mt-1">
-                        <span className="truncate">{alt.title || getDomainFromUrl(alt.url)}</span>
-                        <a
-                          href={alt.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-cyan-400 hover:text-cyan-300"
-                          title="Mở link xem sản phẩm"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
+        const groups = [
+          { title: 'Shopee Việt Nam (Bắt buộc)', items: shopeeAlts, badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
+          { title: 'Cửa hàng linh kiện chuyên ngành Việt Nam', items: specializedAlts, badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
+          { title: 'Các sàn thương mại điện tử khác', items: otherMarketAlts, badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+          { title: 'Nhà cung cấp quốc tế', items: intlAlts, badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
+        ].filter((g) => g.items.length > 0);
 
-                      {alt.reason && (
-                        <span className="text-[11px] text-slate-400 mt-0.5">{alt.reason}</span>
-                      )}
+        return (
+          <tr className="bg-slate-900/60 border-b border-slate-800">
+            <td colSpan={9} className="px-6 py-3">
+              <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Các nguồn mua thay thế ({item.alternatives.length}):
+                  </div>
+                  {item.searchLog && (
+                    <div className="text-[11px] text-slate-400 flex items-center gap-1.5 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                      <span className="font-medium text-orange-400">Shopee log:</span>
+                      <span>
+                        {item.searchLog.shopeeFound
+                          ? `Tìm thấy ${item.searchLog.shopeeProductsRetained} sản phẩm`
+                          : 'Đã gửi truy vấn Shopee qua SearXNG'}
+                      </span>
                     </div>
+                  )}
+                </div>
 
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectAlternative(alt)}
-                        className="rounded bg-cyan-600/20 px-2.5 py-1 text-xs font-medium text-cyan-400 hover:bg-cyan-600/30 border border-cyan-500/30 transition-colors"
-                      >
-                        Chọn nguồn này
-                      </button>
+                {groups.map((grp, gIdx) => (
+                  <div key={gIdx} className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${grp.badgeColor}`}>
+                        {grp.title} ({grp.items.length})
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {grp.items.map((alt, altIdx) => (
+                        <div
+                          key={altIdx}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-900/70 p-2.5 text-xs border border-slate-800/80 hover:border-slate-700 transition-colors"
+                        >
+                          <div className="flex flex-col flex-1 min-w-[220px]">
+                            <div className="flex items-center gap-2">
+                              {renderSupplierBadge(
+                                alt.supplierTier,
+                                alt.supplierCountry,
+                                alt.supplierName,
+                                alt.supplierDomain
+                              )}
+                              {renderLinkVerificationBadge(alt.linkStatus)}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 font-medium text-slate-200 mt-1">
+                              <span className="truncate">{alt.title || getDomainFromUrl(alt.url)}</span>
+                              <a
+                                href={alt.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-cyan-400 hover:text-cyan-300"
+                                title="Mở link xem sản phẩm"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+
+                            {alt.reason && (
+                              <span className="text-[11px] text-slate-400 mt-0.5">{alt.reason}</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => handleSelectAlternative(alt)}
+                              className="rounded bg-cyan-600/20 px-2.5 py-1 text-xs font-medium text-cyan-400 hover:bg-cyan-600/30 border border-cyan-500/30 transition-colors"
+                            >
+                              Chọn nguồn này
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
+
+                {item.searchLog?.shopeeQueries && item.searchLog.shopeeQueries.length > 0 && (
+                  <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800/50 flex flex-wrap gap-x-3">
+                    <span>Truy vấn Shopee đã thực hiện:</span>
+                    {item.searchLog.shopeeQueries.map((q, qIdx) => (
+                      <code key={qIdx} className="bg-slate-900 px-1 py-0.2 text-slate-400 rounded">
+                        {q}
+                      </code>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          </td>
-        </tr>
-      )}
+            </td>
+          </tr>
+        );
+      })()}
     </>
   );
 };

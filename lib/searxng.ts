@@ -2,7 +2,7 @@ import { getAppSettings } from './config';
 import { findSourceByUrl, isAllowedSourceUrl } from './sources';
 import { isSpecificProductPath } from './link-validator';
 import { searchVietnamTier1Stores } from './vietnam-stores';
-import { BomSearchResult } from './types';
+import { BomSearchResult, SearchLog } from './types';
 
 const SEARCH_TIMEOUT_MS = 6000;
 
@@ -27,6 +27,19 @@ const KNOWN_MODEL_PATTERNS = [
   /\b(MG996R|MG995|SG90|DS3218|GA25|GA12|N20|JGB37|28BYJ-48|NEMA\s*17)\b/i,
   /\b(LM2596|XL4015|TP4056|MT3608|AMS1117|18650)\b/i,
   /\b(Mecanum|Breadboard|Dupont)\b/i,
+];
+
+// Technical English equivalents for Vietnamese robotics terms to improve Shopee search coverage
+const VI_TO_EN_SYNONYMS: Array<[RegExp, string]> = [
+  [/động cơ giảm tốc\s*n20/i, 'N20 DC geared motor'],
+  [/động cơ giảm tốc/i, 'DC geared motor'],
+  [/động cơ bước/i, 'stepper motor'],
+  [/cảm biến dò line/i, 'line tracking sensor'],
+  [/cảm biến siêu âm/i, 'ultrasonic sensor'],
+  [/khung xe robot/i, 'robot car chassis'],
+  [/bánh xe mecanum/i, 'mecanum wheel'],
+  [/mạch hạ áp/i, 'buck converter'],
+  [/mạch điều khiển động cơ/i, 'motor driver'],
 ];
 
 /**
@@ -70,9 +83,70 @@ export function extractCoreSearchTerms(query: string): string[] {
 }
 
 /**
+ * Mandatory Shopee Query Planner:
+ * Generates targeted, non-redundant `site:shopee.vn` queries covering:
+ * - Exact model / core term
+ * - Vietnamese product phrase or important specification
+ * - English technical synonym (when applicable)
+ */
+export function buildShopeeQueries(name: string, specification?: string): string[] {
+  const cleanName = (name || '').trim();
+  const cleanSpec = (specification || '').trim();
+  if (!cleanName) return [];
+
+  const coreTerms = extractCoreSearchTerms(cleanName);
+  const primary = coreTerms[0] || cleanName;
+  const secondary = coreTerms[1];
+
+  const queries: string[] = [];
+
+  // 1. Exact primary term / model on Shopee
+  queries.push(`site:shopee.vn ${primary}`);
+
+  // 2. Model + key voltage/spec (e.g. "12V", "5V", "5 kênh") if found in name or spec
+  const specSource = `${cleanName} ${cleanSpec}`;
+  const keySpecMatch = specSource.match(/\b(\d+(?:\.\d+)?\s*(?:V|A|W|rpm|kênh|mắt|dof|mm|mah))\b/i);
+  if (keySpecMatch && keySpecMatch[1]) {
+    const specToken = keySpecMatch[1].replace(/\s+/g, '');
+    if (!primary.toLowerCase().includes(specToken.toLowerCase())) {
+      queries.push(`site:shopee.vn ${primary} ${specToken}`);
+    }
+  }
+
+  // 3. Vietnamese phrase if different from primary model code
+  if (secondary && secondary.toLowerCase() !== primary.toLowerCase()) {
+    queries.push(`site:shopee.vn ${secondary}`);
+  }
+
+  // 4. English technical equivalent if matching known robotics terms
+  for (const [pattern, enTerm] of VI_TO_EN_SYNONYMS) {
+    if (pattern.test(cleanName) && !primary.toLowerCase().includes(enTerm.toLowerCase())) {
+      queries.push(`site:shopee.vn ${enTerm}`);
+      break;
+    }
+  }
+
+  // Deduplicate case-insensitively and cap at 3 non-redundant queries
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const q of queries) {
+    const key = q.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(q);
+    }
+    if (unique.length >= 3) break;
+  }
+
+  return unique;
+}
+
+/**
  * Multi-query planner for Vietnam-first robotics component discovery
+ * Shopee Vietnam is ALWAYS planned as a mandatory source alongside Tier 1 specialized stores.
  */
 export function buildMultiQueryPlan(name: string, specification?: string): {
+  shopeeQueries: string[];
   tier1Queries: string[];
   tier2Queries: string[];
   tier3Queries: string[];
@@ -82,17 +156,18 @@ export function buildMultiQueryPlan(name: string, specification?: string): {
   const coreTerms = extractCoreSearchTerms(cleanName);
   const primary = coreTerms[0] || cleanName;
 
+  const shopeeQueries = buildShopeeQueries(cleanName, cleanSpec);
+
   const tier1Queries = [
     primary,
+    `site:lkcg.vn ${primary}`,
     `site:hshop.vn ${primary}`,
     `site:nshopvn.com ${primary}`,
-    `site:lkcg.vn ${primary}`,
     `site:banlinhkien.com ${primary}`,
     `site:cungcaplinhkien.vn ${primary}`,
   ];
 
   const tier2Queries = [
-    `site:shopee.vn ${primary}`,
     `site:lazada.vn ${primary}`,
     `site:tiki.vn ${primary}`,
   ];
@@ -106,7 +181,7 @@ export function buildMultiQueryPlan(name: string, specification?: string): {
     `site:lcsc.com ${combined}`,
   ];
 
-  return { tier1Queries, tier2Queries, tier3Queries };
+  return { shopeeQueries, tier1Queries, tier2Queries, tier3Queries };
 }
 
 export function buildProductSearchQuery(name: string, specification?: string): string {
@@ -127,7 +202,7 @@ export function buildProductSearchQuery(name: string, specification?: string): s
 
 /**
  * Strictly filters results to allowlisted domains and specific product paths,
- * then orders Vietnam Tier 1 -> Vietnam Tier 2 -> International Tier 3.
+ * then orders Vietnam Tier 1 -> Vietnam Tier 2 (Shopee, Lazada, Tiki) -> International Tier 3.
  */
 export function filterAllowedProductResults(results: BomSearchResult[]): BomSearchResult[] {
   if (!Array.isArray(results)) return [];
@@ -162,94 +237,212 @@ export function filterAllowedProductResults(results: BomSearchResult[]): BomSear
   });
 }
 
-async function querySearxngEndpoint(baseUrl: string, query: string): Promise<BomSearchResult[]> {
+async function querySearxngEndpoint(
+  baseUrl: string,
+  query: string
+): Promise<{ results: BomSearchResult[]; ok: boolean; error?: string }> {
   const searchUrl = `${baseUrl}/search?q=${encodeURIComponent(query)}&format=json&language=vi`;
   try {
     const res = await fetch(searchUrl, {
       signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return { results: [], ok: false, error: `HTTP ${res.status}` };
+    }
     const data: RawSearxResponse = await res.json();
-    if (!data || !Array.isArray(data.results)) return [];
+    if (!data || !Array.isArray(data.results)) {
+      return { results: [], ok: true };
+    }
 
-    return data.results.map((item): BomSearchResult => ({
+    const mapped = data.results.map((item): BomSearchResult => ({
       title: item.title || '',
       url: item.url || '',
       content: item.content || item.snippet || '',
       ...(item.engine ? { engine: item.engine } : {}),
     }));
-  } catch {
-    return [];
+
+    return { results: mapped, ok: true };
+  } catch (err) {
+    return {
+      results: [],
+      ok: false,
+      error: err instanceof Error ? err.message : 'Network error',
+    };
   }
 }
 
+export interface SearchWithLogResponse {
+  results: BomSearchResult[];
+  searchLog: SearchLog;
+}
+
 /**
- * Vietnam-first multi-tier product search:
- * 1. Direct Tier 1 Vietnamese specialized stores (Hshop, NShop, LKCG, Banlinhkien)
- * 2. Configured SearXNG instance (filtered strictly to allowlist: Tier 1 & Tier 2 VN)
- * 3. Tier 3 International fallback ONLY when Vietnam sources yield 0 verified results
+ * Mandatory Shopee + Parallel Vietnam Tier 1 Multi-Tier Search Orchestrator:
+ * 1. ALWAYS executes Mandatory Shopee Vietnam search (`site:shopee.vn ...`) via SearXNG.
+ * 2. Runs Specialized Vietnamese Tier 1 Stores (Hshop, NShop, LKCG, Banlinhkien) in PARALLEL.
+ * 3. Expands to Additional Vietnamese Marketplaces (Lazada, Tiki) if needed for coverage.
+ * 4. Expands to Tier 3 International Suppliers ONLY when Vietnam sources yield 0 valid results.
+ * 5. Produces a transparent SearchLog auditing every Shopee query executed and exact retention counts.
  */
-export async function searchSearxng(
+export async function searchWithMandatoryShopee(
   query: string,
-  customUrl?: string
-): Promise<BomSearchResult[]> {
+  customUrl?: string,
+  specification?: string
+): Promise<SearchWithLogResponse> {
   const trimmed = query?.trim();
+  const timestamp = new Date().toISOString();
+
   if (!trimmed) {
-    return [];
+    return {
+      results: [],
+      searchLog: {
+        componentName: '',
+        timestamp,
+        shopeeQueries: [],
+        specializedQueries: [],
+        rawShopeeCount: 0,
+        rawSpecializedCount: 0,
+        totalFilteredCount: 0,
+        shopeeFound: false,
+        shopeeProductsRetained: 0,
+        specializedProductsRetained: 0,
+        statusNotes: 'Truy vấn trống',
+      },
+    };
   }
 
-  const allFound: BomSearchResult[] = [];
   const baseUrl = (customUrl || getAppSettings().searxngUrl || 'http://localhost:8080').replace(/\/+$/, '');
   const coreTerms = extractCoreSearchTerms(trimmed);
+  const shopeeQueries = buildShopeeQueries(trimmed, specification);
+  const specializedQueries = [...coreTerms];
+  const additionalQueries: string[] = [];
 
-  // Run Tier 1 live store search and primary SearXNG query concurrently
-  const [tier1Result, searxPrimaryResult] = await Promise.allSettled([
+  const allRaw: BomSearchResult[] = [];
+  let rawShopeeCount = 0;
+  let rawSpecializedCount = 0;
+  let shopeeRequestErrors: string[] = [];
+
+  // STEP 1 & 2 (PARALLEL): Mandatory Shopee Search + Specialized Tier 1 Vietnamese Stores
+  const [shopeeSettled, tier1Settled, searxPrimarySettled] = await Promise.allSettled([
+    // Mandatory Shopee search via SearXNG (never skipped, even if Tier 1 succeeds)
+    (async () => {
+      const collected: BomSearchResult[] = [];
+      const errors: string[] = [];
+      const responses = await Promise.all(
+        shopeeQueries.map((sq) => querySearxngEndpoint(baseUrl, sq))
+      );
+      for (const resp of responses) {
+        if (!resp.ok && resp.error) {
+          errors.push(resp.error);
+        }
+        collected.push(...resp.results);
+      }
+      return { collected, errors };
+    })(),
+    // Parallel Tier 1 specialized VN electronics stores
     (async () => {
       const collected: BomSearchResult[] = [];
       for (const term of coreTerms) {
         const found = await searchVietnamTier1Stores(term, 6);
         collected.push(...found);
-        if (collected.length >= 5) break;
+        if (collected.length >= 6) break;
       }
       return collected;
     })(),
+    // Primary SearXNG query (captures additional Tier 1 / VN store results)
     querySearxngEndpoint(baseUrl, trimmed),
   ]);
 
-  if (tier1Result.status === 'fulfilled') {
-    allFound.push(...tier1Result.value);
-  }
-  if (searxPrimaryResult.status === 'fulfilled') {
-    allFound.push(...searxPrimaryResult.value);
+  if (shopeeSettled.status === 'fulfilled') {
+    const { collected, errors } = shopeeSettled.value;
+    shopeeRequestErrors = errors;
+    rawShopeeCount = collected.filter((r) => {
+      const src = findSourceByUrl(r.url);
+      return src?.id === 'shopee';
+    }).length;
+    allRaw.push(...collected);
   }
 
-  let filtered = filterAllowedProductResults(allFound);
+  if (tier1Settled.status === 'fulfilled') {
+    rawSpecializedCount += tier1Settled.value.length;
+    allRaw.push(...tier1Settled.value);
+  }
 
-  // Check if we have any Vietnam results (Tier 1 or Tier 2)
+  if (searxPrimarySettled.status === 'fulfilled') {
+    rawSpecializedCount += searxPrimarySettled.value.results.length;
+    allRaw.push(...searxPrimarySettled.value.results);
+  }
+
+  let filtered = filterAllowedProductResults(allRaw);
+
+  // STEP 3: Additional Vietnamese Marketplaces (Lazada, Tiki) if coverage is still low (< 3 results)
+  if (filtered.length < 3 && coreTerms[0]) {
+    const additionalMarketQuery = `${coreTerms[0]} (site:lazada.vn OR site:tiki.vn)`;
+    additionalQueries.push(additionalMarketQuery);
+    const marketResp = await querySearxngEndpoint(baseUrl, additionalMarketQuery);
+    if (marketResp.results.length > 0) {
+      allRaw.push(...marketResp.results);
+      filtered = filterAllowedProductResults(allRaw);
+    }
+  }
+
+  // STEP 4: Tier 3 International Fallback ONLY when Vietnam sources returned 0 valid products
   const hasVietnamResults = filtered.some((item) => {
     const src = findSourceByUrl(item.url);
     return src && src.country === 'VN';
   });
 
-  // If no Vietnam results yet, attempt targeted Tier 2 Marketplace search via SearXNG
   if (!hasVietnamResults && coreTerms[0]) {
-    const vnMarketQuery = `${coreTerms[0]} (site:shopee.vn OR site:lazada.vn OR site:tiki.vn)`;
-    const marketResults = await querySearxngEndpoint(baseUrl, vnMarketQuery);
-    if (marketResults.length > 0) {
-      allFound.push(...marketResults);
-      filtered = filterAllowedProductResults(allFound);
-    }
-  }
-
-  // Tier 3 International fallback ONLY when Vietnam sources returned 0 results
-  if (filtered.length === 0 && coreTerms[0]) {
     const intlQuery = `${coreTerms[0]} (site:digikey.com OR site:mouser.com OR site:pololu.com OR site:dfrobot.com)`;
-    const intlResults = await querySearxngEndpoint(baseUrl, intlQuery);
-    if (intlResults.length > 0) {
-      allFound.push(...intlResults);
-      filtered = filterAllowedProductResults(allFound);
+    additionalQueries.push(intlQuery);
+    const intlResp = await querySearxngEndpoint(baseUrl, intlQuery);
+    if (intlResp.results.length > 0) {
+      allRaw.push(...intlResp.results);
+      filtered = filterAllowedProductResults(allRaw);
     }
   }
 
-  return filtered;
+  const shopeeProductsRetained = filtered.filter((r) => findSourceByUrl(r.url)?.id === 'shopee').length;
+  const specializedProductsRetained = filtered.filter((r) => findSourceByUrl(r.url)?.tier === 1).length;
+
+  let statusNotes: string | undefined;
+  if (shopeeProductsRetained > 0) {
+    statusNotes = `Đã tìm thấy ${shopeeProductsRetained} sản phẩm Shopee VN và ${specializedProductsRetained} sản phẩm từ cửa hàng chuyên ngành.`;
+  } else if (shopeeRequestErrors.length === shopeeQueries.length && shopeeQueries.length > 0) {
+    statusNotes = `Đã gửi truy vấn Shopee qua SearXNG nhưng gặp lỗi kết nối (${shopeeRequestErrors[0]}).`;
+  } else if (rawShopeeCount > 0 && shopeeProductsRetained === 0) {
+    statusNotes = `Shopee trả về ${rawShopeeCount} kết quả nhưng đều là trang danh mục/tìm kiếm không phải link sản phẩm cụ thể.`;
+  } else {
+    statusNotes = `Đã thực thi truy vấn Shopee (${shopeeQueries.join(', ')}) nhưng SearXNG không trả về trang sản phẩm phù hợp.`;
+  }
+
+  const searchLog: SearchLog = {
+    componentName: trimmed,
+    timestamp,
+    shopeeQueries,
+    specializedQueries,
+    ...(additionalQueries.length > 0 ? { additionalQueries } : {}),
+    rawShopeeCount,
+    rawSpecializedCount,
+    totalFilteredCount: filtered.length,
+    shopeeFound: shopeeProductsRetained > 0,
+    shopeeProductsRetained,
+    specializedProductsRetained,
+    statusNotes,
+  };
+
+  return { results: filtered, searchLog };
+}
+
+/**
+ * Backward-compatible entry point returning BomSearchResult[].
+ * Always executes mandatory Shopee Vietnam search + parallel Tier 1 stores.
+ */
+export async function searchSearxng(
+  query: string,
+  customUrl?: string,
+  specification?: string
+): Promise<BomSearchResult[]> {
+  const { results } = await searchWithMandatoryShopee(query, customUrl, specification);
+  return results;
 }

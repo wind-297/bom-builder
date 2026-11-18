@@ -114,7 +114,7 @@ QUY TẮC BẮT BUỘC:
 1. TUYỆT ĐỐI KHÔNG DỰA VÀO GIÁ CẢ. Người dùng sẽ tự nhập đơn giá thủ công. KHÔNG trích xuất hoặc ước tính giá.
 2. "selectedUrl" BẮT BUỘC PHẢI nằm trong danh sách URL từ kết quả tìm kiếm được cung cấp. TUYỆT ĐỐI KHÔNG TỰ BỊA URL.
 3. TUYỆT ĐỐI KHÔNG chọn URL trang chủ website chung chung (ví dụ: "https://shopee.vn", "https://hshop.vn").
-4. Ưu tiên các nhà cung cấp linh kiện chuyên ngành tại Việt Nam (Tier 1: hshop.vn, lkcg.vn, nshopvn.com, banlinhkien.com...).
+4. Đảm bảo cân nhắc cả sản phẩm từ Shopee Việt Nam (shopee.vn) và các nhà cung cấp linh kiện chuyên ngành tại Việt Nam (Tier 1: lkcg.vn, hshop.vn, nshopvn.com, banlinhkien.com...). Luôn giữ các lựa chọn từ Shopee trong danh sách "alternatives" nếu có trong kết quả tìm kiếm.
 5. Đánh giá mức độ phù hợp:
    - "best_match": Sản phẩm khớp chính xác thông số kỹ thuật nhất.
    - "most_reliable": Sản phẩm từ nhà cung cấp chuyên ngành uy tín nhất.
@@ -141,6 +141,72 @@ export function extractPriceFromText(_text: string): number {
   return 0;
 }
 
+export function buildDiverseAlternatives(
+  selectedUrl: string,
+  ranked: BomSearchResult[]
+): BomItemAlternative[] {
+  const remaining = ranked.filter((r) => r.url !== selectedUrl);
+  if (remaining.length === 0) return [];
+
+  // Group by category/source
+  const shopeeList: BomSearchResult[] = [];
+  const tier1List: BomSearchResult[] = [];
+  const otherMarketplaces: BomSearchResult[] = [];
+  const intlList: BomSearchResult[] = [];
+
+  for (const r of remaining) {
+    const src = findSourceByUrl(r.url);
+    if (src?.id === 'shopee') {
+      shopeeList.push(r);
+    } else if (src?.tier === 1) {
+      tier1List.push(r);
+    } else if (src?.tier === 2) {
+      otherMarketplaces.push(r);
+    } else {
+      intlList.push(r);
+    }
+  }
+
+  // Interleave to guarantee both Shopee and Tier 1 specialized store representation
+  const selectedList: BomSearchResult[] = [];
+  const maxEach = 3;
+
+  // Add top Shopee results
+  selectedList.push(...shopeeList.slice(0, maxEach));
+  // Add top Tier 1 specialized results
+  selectedList.push(...tier1List.slice(0, maxEach));
+  // Add other marketplaces (Lazada, Tiki)
+  selectedList.push(...otherMarketplaces.slice(0, 2));
+  // Add international if any
+  selectedList.push(...intlList.slice(0, 2));
+
+  // If still fewer than 5, fill from remaining
+  if (selectedList.length < 5) {
+    for (const r of remaining) {
+      if (!selectedList.some((s) => s.url === r.url)) {
+        selectedList.push(r);
+        if (selectedList.length >= 6) break;
+      }
+    }
+  }
+
+  return selectedList.slice(0, 8).map((r, idx) => {
+    const altSource = findSourceByUrl(r.url);
+    const isShopee = altSource?.id === 'shopee';
+    return {
+      title: r.title,
+      url: r.url,
+      supplierName: altSource?.name,
+      supplierDomain: altSource?.domain,
+      supplierTier: altSource?.tier,
+      supplierCountry: altSource?.country,
+      linkStatus: 'verified',
+      matchType: idx === 0 ? 'most_reliable' : 'alternative',
+      reason: isShopee ? 'Sản phẩm từ Shopee Việt Nam' : `Sản phẩm từ ${altSource?.name || 'nhà cung cấp uy tín'}`,
+    };
+  });
+}
+
 function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
   if (ranked.length === 0) {
     return {
@@ -159,20 +225,7 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
   const quantity = item.quantity > 0 ? item.quantity : 1;
   const currentManual = item.manualPrice?.amount || 0;
 
-  const alternatives: BomItemAlternative[] = ranked.slice(1, 5).map((r, idx) => {
-    const altSource = findSourceByUrl(r.url);
-    return {
-      title: r.title,
-      url: r.url,
-      supplierName: altSource?.name,
-      supplierDomain: altSource?.domain,
-      supplierTier: altSource?.tier,
-      supplierCountry: altSource?.country,
-      linkStatus: 'verified',
-      matchType: idx === 0 ? 'most_reliable' : 'alternative',
-      reason: `Sản phẩm từ ${altSource?.name || 'nhà cung cấp uy tín'}`,
-    };
-  });
+  const alternatives: BomItemAlternative[] = buildDiverseAlternatives(first.url, ranked);
 
   return {
     ...item,
@@ -316,23 +369,7 @@ ${rankedResults
     }
 
     if (alternatives.length === 0) {
-      alternatives = rankedResults
-        .filter((r) => r.url !== selectedUrl)
-        .slice(0, 4)
-        .map((r, idx) => {
-          const altSource = findSourceByUrl(r.url);
-          return {
-            title: r.title,
-            url: r.url,
-            supplierName: altSource?.name,
-            supplierDomain: altSource?.domain,
-            supplierTier: altSource?.tier,
-            supplierCountry: altSource?.country,
-            linkStatus: 'verified',
-            matchType: idx === 0 ? 'most_reliable' : 'alternative',
-            reason: 'Lựa chọn thay thế phù hợp',
-          };
-        });
+      alternatives = buildDiverseAlternatives(selectedUrl, rankedResults);
     }
 
     return {

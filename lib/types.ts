@@ -57,6 +57,21 @@ export interface SearchProduct {
   };
 }
 
+export interface SearchLog {
+  componentName: string;
+  timestamp: string;
+  shopeeQueries: string[];
+  specializedQueries: string[];
+  additionalQueries?: string[];
+  rawShopeeCount: number;
+  rawSpecializedCount: number;
+  totalFilteredCount: number;
+  shopeeFound: boolean;
+  shopeeProductsRetained: number;
+  specializedProductsRetained: number;
+  statusNotes?: string;
+}
+
 export interface BomItem {
   id: string;
   name: string;
@@ -78,6 +93,7 @@ export interface BomItem {
   supplierTier?: 1 | 2 | 3;
   supplierCountry?: 'VN' | 'INT';
   matchType?: 'best_match' | 'most_reliable' | 'alternative';
+  searchLog?: SearchLog;
   // Architecture, Subsystem & Compatibility
   subsystem?: string;
   category?: string;

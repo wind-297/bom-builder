@@ -209,11 +209,13 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query,
+          specification: target.specification,
           customUrl: settings?.searxngUrl,
         }),
       });
       const searchData = await searchRes.json();
       const searchResults = Array.isArray(searchData?.results) ? searchData.results : [];
+      const searchLog = searchData?.searchLog;
 
       const optRes = await fetch('/api/optimize', {
         method: 'POST',
@@ -228,11 +230,18 @@ export default function Home() {
       });
       const optData = await optRes.json();
       if (optData?.item) {
-        setItems((prev) => prev.map((it) => (it.id === id ? optData.item : it)));
+        const withLog = { ...optData.item, searchLog: searchLog || optData.item.searchLog };
+        setItems((prev) => prev.map((it) => (it.id === id ? withLog : it)));
       } else {
         setItems((prev) =>
           prev.map((it) =>
-            it.id === id ? { ...it, status: searchResults.length > 0 ? 'found' : 'not_found' } : it
+            it.id === id
+              ? {
+                  ...it,
+                  status: searchResults.length > 0 ? 'found' : 'not_found',
+                  searchLog,
+                }
+              : it
           )
         );
       }
@@ -267,7 +276,7 @@ export default function Home() {
           current: i,
           total: pendingItems.length,
           currentItemName: currentItem.name,
-          step: 'Đang tìm tại các nhà cung cấp Việt Nam...',
+          step: 'Đang tìm song song: Shopee VN & Cửa hàng chuyên ngành...',
         });
 
         // Set status 'searching'
@@ -282,6 +291,7 @@ export default function Home() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               query,
+              specification: currentItem.specification,
               customUrl: settings?.searxngUrl,
             }),
             signal: controller.signal,
@@ -290,6 +300,7 @@ export default function Home() {
           if (!searchRes.ok) throw new Error('Search failed');
           const searchData = await searchRes.json();
           const searchResults = Array.isArray(searchData?.results) ? searchData.results : [];
+          const searchLog = searchData?.searchLog;
 
           if (controller.signal.aborted) break;
 
@@ -297,7 +308,7 @@ export default function Home() {
             current: i,
             total: pendingItems.length,
             currentItemName: currentItem.name,
-            step: 'Đang xác minh đường dẫn & xếp hạng kỹ thuật...',
+            step: 'Đang kiểm tra đường dẫn & phân nhóm kết quả...',
           });
 
           const optRes = await fetch('/api/optimize', {
@@ -318,12 +329,17 @@ export default function Home() {
           const optimized = optData?.item;
 
           if (optimized && optimized.id) {
-            setItems((prev) => prev.map((it) => (it.id === currentItem.id ? optimized : it)));
+            const withLog = { ...optimized, searchLog: searchLog || optimized.searchLog };
+            setItems((prev) => prev.map((it) => (it.id === currentItem.id ? withLog : it)));
           } else {
             setItems((prev) =>
               prev.map((it) =>
                 it.id === currentItem.id
-                  ? { ...it, status: searchResults.length > 0 ? 'found' : 'not_found' }
+                  ? {
+                      ...it,
+                      status: searchResults.length > 0 ? 'found' : 'not_found',
+                      searchLog,
+                    }
                   : it
               )
             );
