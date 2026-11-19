@@ -184,13 +184,19 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     name?: string,
     domain?: string
   ) => {
-    const displayName = name || (domain ? domain.replace('www.', '') : '');
+    let displayName = name || (domain ? domain.replace('www.', '') : '');
     if (!displayName) return null;
+
+    // Ẩn hoàn toàn chữ phân cấp như Tier 1, Tier 2, Tier 3, Ưu tiên...
+    displayName = displayName
+      .replace(/\s*\((?:Tier\s*\d+[^)]*|Ưu tiên[^)]*)\)/gi, '')
+      .replace(/\s*Tier\s*\d+/gi, '')
+      .trim();
 
     if (tier === 1 || domain?.includes('shopee.vn') || name?.toLowerCase().includes('shopee')) {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-300 border border-orange-500/30">
-          <span>Shopee VN (Ưu tiên)</span>
+          <span>Shopee VN</span>
         </span>
       );
     }
@@ -556,7 +562,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
         );
 
         const groups = [
-          { title: 'Shopee Việt Nam (Ưu tiên số 1)', items: shopeeAlts, badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
+          { title: 'Shopee Việt Nam', items: shopeeAlts, badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
           { title: 'Cửa hàng linh kiện chuyên ngành', items: specializedAlts, badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
           { title: 'Các sàn thương mại điện tử khác', items: otherMarketAlts, badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
           { title: 'Nhà cung cấp quốc tế', items: intlAlts, badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
