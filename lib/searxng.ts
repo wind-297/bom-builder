@@ -101,7 +101,55 @@ export function extractCoreSearchTerms(query: string): string[] {
  * - English technical synonym (when applicable)
  */
 export function buildShopeeQueries(name: string, specification?: string): string[] {
-  return buildExpandedShopeeQueries(name, specification);
+  const cleanName = (name || '').trim();
+  const cleanSpec = (specification || '').trim();
+  if (!cleanName) return [];
+
+  const coreTerms = extractCoreSearchTerms(cleanName);
+  const primary = coreTerms[0] || cleanName;
+  const secondary = coreTerms[1];
+
+  const queries: string[] = [];
+
+  // 1. Exact primary term / model on Shopee
+  queries.push(`site:shopee.vn ${primary}`);
+
+  // 2. Model + key voltage/spec (e.g. "12V", "5V", "5 kênh") if found in name or spec
+  const specSource = `${cleanName} ${cleanSpec}`;
+  const keySpecMatch = specSource.match(/\b(\d+(?:\.\d+)?\s*(?:V|A|W|rpm|kênh|mắt|dof|mm|mah))\b/i);
+  if (keySpecMatch && keySpecMatch[1]) {
+    const specToken = keySpecMatch[1].replace(/\s+/g, '');
+    if (!primary.toLowerCase().includes(specToken.toLowerCase())) {
+      queries.push(`site:shopee.vn ${primary} ${specToken}`);
+    }
+  }
+
+  // 3. Vietnamese phrase if different from primary model code
+  if (secondary && secondary.toLowerCase() !== primary.toLowerCase()) {
+    queries.push(`site:shopee.vn ${secondary}`);
+  }
+
+  // 4. English technical equivalent if matching known robotics terms
+  for (const [pattern, enTerm] of VI_TO_EN_SYNONYMS) {
+    if (pattern.test(cleanName) && !primary.toLowerCase().includes(enTerm.toLowerCase())) {
+      queries.push(`site:shopee.vn ${enTerm}`);
+      break;
+    }
+  }
+
+  // Deduplicate case-insensitively and cap at 3 non-redundant queries
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const q of queries) {
+    const key = q.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(q);
+    }
+    if (unique.length >= 3) break;
+  }
+
+  return unique;
 }
 
 /**

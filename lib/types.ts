@@ -25,7 +25,7 @@ export interface BomItemAlternative {
   supplierCountry?: 'VN' | 'INT';
   supplierTier?: 1 | 2 | 3 | 4;
   linkStatus?: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
-  matchType?: 'best_match' | 'most_reliable' | 'alternative';
+  matchType?: 'best_match' | 'strong_match' | 'most_reliable' | 'alternative' | 'possible_alternative' | 'related';
   reason?: string;
   // Legacy optional price field for backward compatibility
   price?: number;
@@ -53,7 +53,7 @@ export interface SearchProduct {
     score: number;
     reasons: string[];
     warnings: string[];
-    matchType?: 'best_match' | 'most_reliable' | 'alternative';
+    matchType?: 'best_match' | 'strong_match' | 'most_reliable' | 'alternative' | 'possible_alternative' | 'related';
   };
 }
 
@@ -92,7 +92,7 @@ export interface BomItem {
   supplierName?: string;
   supplierTier?: 1 | 2 | 3 | 4;
   supplierCountry?: 'VN' | 'INT';
-  matchType?: 'best_match' | 'most_reliable' | 'alternative';
+  matchType?: 'best_match' | 'strong_match' | 'most_reliable' | 'alternative' | 'possible_alternative' | 'related';
   searchLog?: SearchLog;
   // Architecture, Subsystem & Compatibility
   subsystem?: string;

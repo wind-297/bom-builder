@@ -106,16 +106,14 @@ function calculateTechnicalRankScore(
       const match = classifyProductMatch(knowledge, item);
       if (match.grade === 'exact_match') {
         score += 150;
-      } else if (match.grade === 'equivalent') {
-        score += 80;
+      } else if (match.grade === 'strong_match' || match.grade === 'equivalent') {
+        score += 100;
+      } else if (match.grade === 'possible_alternative') {
+        score += 60;
       } else if (match.grade === 'related') {
-        score += 10;
+        score += 20;
       } else if (match.grade === 'no_match') {
-        if (knowledge.modelCode) {
-          // If model code was explicitly specified, unrelated products should be discarded
-          return -100;
-        }
-        score -= 50;
+        return -100;
       }
     }
 
@@ -175,7 +173,8 @@ export function extractPriceFromText(_text: string): number {
 
 export function buildDiverseAlternatives(
   selectedUrl: string,
-  ranked: BomSearchResult[]
+  ranked: BomSearchResult[],
+  knowledge?: ComponentKnowledge
 ): BomItemAlternative[] {
   const remaining = ranked.filter((r) => r.url !== selectedUrl);
   if (remaining.length === 0) return [];
@@ -225,6 +224,19 @@ export function buildDiverseAlternatives(
   return selectedList.slice(0, 8).map((r, idx) => {
     const altSource = findSourceByUrl(r.url);
     const isShopee = altSource?.id === 'shopee';
+    let matchType: 'best_match' | 'strong_match' | 'most_reliable' | 'alternative' | 'possible_alternative' | 'related' = idx === 0 ? 'most_reliable' : 'alternative';
+    let matchReason = isShopee ? 'Sản phẩm từ Shopee Việt Nam' : `Sản phẩm từ ${altSource?.name || 'nhà cung cấp uy tín'}`;
+
+    if (knowledge) {
+      const cls = classifyProductMatch(knowledge, r);
+      if (cls.grade === 'exact_match') matchType = 'best_match';
+      else if (cls.grade === 'strong_match' || cls.grade === 'equivalent') matchType = 'strong_match';
+      else if (cls.grade === 'possible_alternative') matchType = 'possible_alternative';
+      else if (cls.grade === 'related') matchType = 'related';
+
+      if (cls.reason) matchReason = cls.reason;
+    }
+
     return {
       title: r.title,
       url: r.url,
@@ -233,8 +245,8 @@ export function buildDiverseAlternatives(
       supplierTier: altSource?.tier,
       supplierCountry: altSource?.country,
       linkStatus: 'verified',
-      matchType: idx === 0 ? 'most_reliable' : 'alternative',
-      reason: isShopee ? 'Sản phẩm từ Shopee Việt Nam' : `Sản phẩm từ ${altSource?.name || 'nhà cung cấp uy tín'}`,
+      matchType,
+      reason: matchReason,
     };
   });
 }
@@ -259,9 +271,13 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
     classification: classifyProductMatch(knowledge, r),
   }));
 
-  // Strict match filtering: only accept exact_match or equivalent
+  // Match filtering: Accept exact_match, strong_match, equivalent, and possible_alternative
   const acceptable = evaluated.filter(
-    (e) => e.classification.grade === 'exact_match' || e.classification.grade === 'equivalent'
+    (e) =>
+      e.classification.grade === 'exact_match' ||
+      e.classification.grade === 'strong_match' ||
+      e.classification.grade === 'equivalent' ||
+      e.classification.grade === 'possible_alternative'
   );
 
   if (acceptable.length === 0) {
@@ -287,20 +303,40 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
   );
   // Priority 2: Any exact_match
   const topExact = acceptable.find((e) => e.classification.grade === 'exact_match');
-  // Priority 3: Shopee equivalent
-  const topShopeeEquiv = acceptable.find(
-    (e) => findSourceByUrl(e.result.url)?.tier === 1 || findSourceByUrl(e.result.url)?.id === 'shopee'
+  // Priority 3: Shopee strong_match / equivalent
+  const topShopeeStrong = acceptable.find(
+    (e) =>
+      (findSourceByUrl(e.result.url)?.tier === 1 || findSourceByUrl(e.result.url)?.id === 'shopee') &&
+      (e.classification.grade === 'strong_match' || e.classification.grade === 'equivalent')
   );
-  // Priority 4: First acceptable
-  const best = (topShopeeExact || topExact || topShopeeEquiv || acceptable[0]).result;
-  const bestGrade = (topShopeeExact || topExact || topShopeeEquiv || acceptable[0]).classification;
+  // Priority 4: Any strong_match / equivalent
+  const topStrong = acceptable.find(
+    (e) => e.classification.grade === 'strong_match' || e.classification.grade === 'equivalent'
+  );
+  // Priority 5: Shopee possible_alternative
+  const topShopeeAlt = acceptable.find(
+    (e) =>
+      (findSourceByUrl(e.result.url)?.tier === 1 || findSourceByUrl(e.result.url)?.id === 'shopee') &&
+      e.classification.grade === 'possible_alternative'
+  );
+
+  // Best candidate selection
+  const chosen =
+    topShopeeExact || topExact || topShopeeStrong || topStrong || topShopeeAlt || acceptable[0];
+  const best = chosen.result;
+  const bestGrade = chosen.classification;
 
   const source = findSourceByUrl(best.url);
   const quantity = item.quantity > 0 ? item.quantity : 1;
   const currentManual = item.manualPrice?.amount || 0;
 
   const acceptableResults = acceptable.map((a) => a.result);
-  const alternatives: BomItemAlternative[] = buildDiverseAlternatives(best.url, acceptableResults);
+  const alternatives: BomItemAlternative[] = buildDiverseAlternatives(best.url, acceptableResults, knowledge);
+
+  let matchType: 'best_match' | 'strong_match' | 'possible_alternative' | 'alternative' = 'alternative';
+  if (bestGrade.grade === 'exact_match') matchType = 'best_match';
+  else if (bestGrade.grade === 'strong_match' || bestGrade.grade === 'equivalent') matchType = 'strong_match';
+  else if (bestGrade.grade === 'possible_alternative') matchType = 'possible_alternative';
 
   return {
     ...item,
@@ -313,7 +349,7 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
     supplierTier: source?.tier,
     supplierCountry: source?.country,
     linkStatus: 'verified',
-    matchType: bestGrade.grade === 'exact_match' ? 'best_match' : 'alternative',
+    matchType,
     note: item.note || `Chọn từ ${source?.name || 'nhà cung cấp'}: ${bestGrade.reason}`,
     alternatives,
   };

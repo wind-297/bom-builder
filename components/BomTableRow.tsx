@@ -275,6 +275,51 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     );
   };
 
+  const renderMatchTypeBadge = (matchType?: string) => {
+    if (!matchType) return null;
+    if (matchType === 'best_match' || matchType === 'exact_match') {
+      return (
+        <span
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+          title="Đúng linh kiện, đúng model hoặc quy cách cần tìm"
+        >
+          Khớp chính xác
+        </span>
+      );
+    }
+    if (matchType === 'strong_match' || matchType === 'most_reliable') {
+      return (
+        <span
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"
+          title="Cùng chức năng và các thông số quan trọng phù hợp"
+        >
+          Phù hợp cao
+        </span>
+      );
+    }
+    if (matchType === 'possible_alternative' || matchType === 'alternative') {
+      return (
+        <span
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30"
+          title="Có khả năng đáp ứng nhu cầu nhưng cần kiểm tra thêm thông số"
+        >
+          Lựa chọn thay thế
+        </span>
+      );
+    }
+    if (matchType === 'related') {
+      return (
+        <span
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/30"
+          title="Sản phẩm liên quan mang tính tham khảo"
+        >
+          Tham khảo
+        </span>
+      );
+    }
+    return null;
+  };
+
   const calculatedTotal =
     typeof item.totalPrice === 'number' && !isNaN(item.totalPrice) && item.totalPrice > 0
       ? item.totalPrice
@@ -459,6 +504,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
                 item.supplierName,
                 item.supplierDomain
               )}
+              {item.matchType && renderMatchTypeBadge(item.matchType)}
               {item.selectedLink && renderLinkVerificationBadge(item.linkStatus)}
             </div>
 
@@ -609,6 +655,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
                                 alt.supplierName,
                                 alt.supplierDomain
                               )}
+                              {alt.matchType && renderMatchTypeBadge(alt.matchType)}
                               {renderLinkVerificationBadge(alt.linkStatus)}
                             </div>
 
