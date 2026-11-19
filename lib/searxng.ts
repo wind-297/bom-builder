@@ -3,6 +3,7 @@ import { findSourceByUrl, isAllowedSourceUrl } from './sources';
 import { isSpecificProductPath } from './link-validator';
 import { searchVietnamTier1Stores } from './vietnam-stores';
 import { BomSearchResult, SearchLog } from './types';
+import { understandComponent, buildExpandedShopeeQueries } from './component-understanding';
 
 const SEARCH_TIMEOUT_MS = 6000;
 
@@ -19,12 +20,13 @@ interface RawSearxResponse {
 }
 
 const KNOWN_MODEL_PATTERNS = [
-  /\b(ESP32(?:-[A-Z0-9]+)?|ESP8266|STM32[A-Z0-9]*|ATmega328P)\b/i,
+  /\b(3V-?670|3V670)\b/i,
+  /\b(ESP32\s+DevKit\s+V1|ESP32(?:-[A-Z0-9]+)?|ESP8266|STM32[A-Z0-9]*|ATmega328P)\b/i,
   /\b(Arduino\s+(?:Uno|Nano|Mega)(?:\s+R3|\s+V3)?)\b/i,
   /\b(Raspberry\s+Pi\s*\d?)\b/i,
-  /\b(HC-SR04|HC-SR05|TCRT5000|MPU-?6050|OV2640|DHT11|DHT22|VL53L0X)\b/i,
+  /\b(HC-?SR04|HC-?SR05|TCRT5000|MPU-?6050|OV2640|DHT11|DHT22|VL53L0X)\b/i,
   /\b(L298N|L298|TB6612FNG|TB6612|BTS7960|A4988|DRV8825|ULN2003)\b/i,
-  /\b(MG996R|MG995|SG90|DS3218|GA25|GA12|N20|JGB37|28BYJ-48|NEMA\s*17)\b/i,
+  /\b(MG996R|MG995|SG90|DS3218|GA25|GA12|N20(?:\s*12V)?|JGB37|28BYJ-48|NEMA\s*17)\b/i,
   /\b(LM2596|XL4015|TP4056|MT3608|AMS1117|18650)\b/i,
   /\b(Mecanum|Breadboard|Dupont)\b/i,
 ];
@@ -51,16 +53,25 @@ export function extractCoreSearchTerms(query: string): string[] {
   if (!clean) return [];
 
   const terms: string[] = [];
+  const knowledge = understandComponent(clean);
 
-  // 1. Extract exact technical model codes first (highest precision on store search)
+  // 1. Highest priority: exact identified model code
+  if (knowledge.modelCode) {
+    terms.push(knowledge.modelCode);
+  }
+
+  // 2. Extract exact technical model codes from patterns
   for (const pattern of KNOWN_MODEL_PATTERNS) {
     const m = clean.match(pattern);
     if (m && m[1]) {
-      terms.push(m[1].trim());
+      const val = m[1].trim();
+      if (!terms.some((t) => t.toLowerCase() === val.toLowerCase())) {
+        terms.push(val);
+      }
     }
   }
 
-  // 2. Also add stripped Vietnamese core phrase (remove parentheticals & filler prefixes)
+  // 3. Also add stripped Vietnamese core phrase (remove parentheticals & filler prefixes)
   const stripped = clean
     .replace(/\([^)]*\)/g, ' ')
     .replace(/^(?:tìm|mua|bộ|mạch|module|linh\s*kiện|cái|\d+\s+)/i, '')
@@ -90,55 +101,7 @@ export function extractCoreSearchTerms(query: string): string[] {
  * - English technical synonym (when applicable)
  */
 export function buildShopeeQueries(name: string, specification?: string): string[] {
-  const cleanName = (name || '').trim();
-  const cleanSpec = (specification || '').trim();
-  if (!cleanName) return [];
-
-  const coreTerms = extractCoreSearchTerms(cleanName);
-  const primary = coreTerms[0] || cleanName;
-  const secondary = coreTerms[1];
-
-  const queries: string[] = [];
-
-  // 1. Exact primary term / model on Shopee
-  queries.push(`site:shopee.vn ${primary}`);
-
-  // 2. Model + key voltage/spec (e.g. "12V", "5V", "5 kênh") if found in name or spec
-  const specSource = `${cleanName} ${cleanSpec}`;
-  const keySpecMatch = specSource.match(/\b(\d+(?:\.\d+)?\s*(?:V|A|W|rpm|kênh|mắt|dof|mm|mah))\b/i);
-  if (keySpecMatch && keySpecMatch[1]) {
-    const specToken = keySpecMatch[1].replace(/\s+/g, '');
-    if (!primary.toLowerCase().includes(specToken.toLowerCase())) {
-      queries.push(`site:shopee.vn ${primary} ${specToken}`);
-    }
-  }
-
-  // 3. Vietnamese phrase if different from primary model code
-  if (secondary && secondary.toLowerCase() !== primary.toLowerCase()) {
-    queries.push(`site:shopee.vn ${secondary}`);
-  }
-
-  // 4. English technical equivalent if matching known robotics terms
-  for (const [pattern, enTerm] of VI_TO_EN_SYNONYMS) {
-    if (pattern.test(cleanName) && !primary.toLowerCase().includes(enTerm.toLowerCase())) {
-      queries.push(`site:shopee.vn ${enTerm}`);
-      break;
-    }
-  }
-
-  // Deduplicate case-insensitively and cap at 3 non-redundant queries
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  for (const q of queries) {
-    const key = q.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(q);
-    }
-    if (unique.length >= 3) break;
-  }
-
-  return unique;
+  return buildExpandedShopeeQueries(name, specification);
 }
 
 /**

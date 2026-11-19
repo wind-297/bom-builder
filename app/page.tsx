@@ -180,7 +180,16 @@ export default function Home() {
 
   // 3. Thêm thủ công
   const handleAddManualItem = (newItem: BomItem) => {
-    setItems((prev) => [...prev, newItem]);
+    const itemToSearch: BomItem = {
+      ...newItem,
+      status: 'pending',
+      selectedLink: '',
+      linkStatus: 'unverified',
+    };
+    setItems((prev) => [...prev, itemToSearch]);
+    setTimeout(() => {
+      runBatchSearchAndOptimize([itemToSearch]);
+    }, 100);
   };
 
   // 4. Cập nhật linh kiện

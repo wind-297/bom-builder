@@ -14,6 +14,11 @@ import {
   validateProductLink,
   isSpecificProductPath,
 } from './link-validator';
+import {
+  understandComponent,
+  classifyProductMatch,
+  ComponentKnowledge,
+} from './component-understanding';
 
 const OPTIMIZER_TIMEOUT_MS = 30000;
 
@@ -43,26 +48,34 @@ export function filterAndRankSearchResults(
     return true;
   });
 
+  const knowledge = understandComponent(itemName);
   const keywords = itemName
     .toLowerCase()
     .split(/[\s,./\\_-]+/)
     .filter((w) => w.length > 1);
 
-  return valid.sort((a, b) => {
-    const scoreA = calculateTechnicalRankScore(a, keywords);
-    const scoreB = calculateTechnicalRankScore(b, keywords);
-    return scoreB - scoreA;
-  });
+  return valid
+    .map((item) => ({
+      item,
+      score: calculateTechnicalRankScore(item, keywords, knowledge),
+    }))
+    .filter((entry) => entry.score > -50)
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.item);
 }
 
 /**
  * Calculate technical-only ranking score (No price factor):
- * - Technical match: 40%
- * - Supplier reliability tier: 25% (Tier 1: 50, Tier 2: 30, Tier 3: 15)
+ * - Technical match & classification: 40%
+ * - Supplier reliability tier: 25% (Tier 1: 65, Tier 2: 35, Tier 3: 20, Tier 4: 10)
  * - Information completeness: 20%
  * - Specific product path format: 15%
  */
-function calculateTechnicalRankScore(item: BomSearchResult, keywords: string[]): number {
+function calculateTechnicalRankScore(
+  item: BomSearchResult,
+  keywords: string[],
+  knowledge?: ComponentKnowledge
+): number {
   let score = 0;
   try {
     const source = findSourceByUrl(item.url);
@@ -88,7 +101,25 @@ function calculateTechnicalRankScore(item: BomSearchResult, keywords: string[]):
       score += 30;
     }
 
-    // 3. Technical keywords match (40%)
+    // 3. Component understanding & Classification Match
+    if (knowledge) {
+      const match = classifyProductMatch(knowledge, item);
+      if (match.grade === 'exact_match') {
+        score += 150;
+      } else if (match.grade === 'equivalent') {
+        score += 80;
+      } else if (match.grade === 'related') {
+        score += 10;
+      } else if (match.grade === 'no_match') {
+        if (knowledge.modelCode) {
+          // If model code was explicitly specified, unrelated products should be discarded
+          return -100;
+        }
+        score -= 50;
+      }
+    }
+
+    // 4. Technical keywords match
     const text = `${item.title} ${item.content}`.toLowerCase();
     let matchCount = 0;
     for (const kw of keywords) {
@@ -97,9 +128,9 @@ function calculateTechnicalRankScore(item: BomSearchResult, keywords: string[]):
       }
     }
     const matchRatio = keywords.length > 0 ? matchCount / keywords.length : 0;
-    score += Math.round(matchRatio * 80);
+    score += Math.round(matchRatio * 50);
 
-    // 4. Information completeness (20%)
+    // 5. Information completeness (20%)
     if (item.title && item.title.length > 15) score += 20;
     if (item.content && item.content.length > 50) score += 20;
   } catch {
@@ -217,35 +248,73 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
       status: 'not_found',
       selectedLink: '',
       linkStatus: 'unverified',
+      note: 'Không tìm thấy sản phẩm phù hợp tại các nhà cung cấp được hỗ trợ.',
       alternatives: [],
     };
   }
 
-  // Priority 1: Always prefer Shopee (Tier 1) as the primary link if available
-  const shopeeMatch = ranked.find((r) => {
-    const s = findSourceByUrl(r.url);
-    return s?.tier === 1 || s?.id === 'shopee';
-  });
-  const first = shopeeMatch || ranked[0];
-  const source = findSourceByUrl(first.url);
+  const knowledge = understandComponent(item.name);
+  const evaluated = ranked.map((r) => ({
+    result: r,
+    classification: classifyProductMatch(knowledge, r),
+  }));
+
+  // Strict match filtering: only accept exact_match or equivalent
+  const acceptable = evaluated.filter(
+    (e) => e.classification.grade === 'exact_match' || e.classification.grade === 'equivalent'
+  );
+
+  if (acceptable.length === 0) {
+    return {
+      ...item,
+      unitPrice: item.manualPrice?.amount || 0,
+      totalPrice: (item.manualPrice?.amount || 0) * (item.quantity > 0 ? item.quantity : 1),
+      status: 'not_found',
+      selectedLink: '',
+      linkStatus: 'unverified',
+      note: knowledge.modelCode
+        ? `Không tìm thấy sản phẩm khớp với mã '${knowledge.modelCode}'.`
+        : 'Không tìm thấy sản phẩm phù hợp với thông số yêu cầu.',
+      alternatives: [],
+    };
+  }
+
+  // Priority 1: Shopee with exact_match
+  const topShopeeExact = acceptable.find(
+    (e) =>
+      (findSourceByUrl(e.result.url)?.tier === 1 || findSourceByUrl(e.result.url)?.id === 'shopee') &&
+      e.classification.grade === 'exact_match'
+  );
+  // Priority 2: Any exact_match
+  const topExact = acceptable.find((e) => e.classification.grade === 'exact_match');
+  // Priority 3: Shopee equivalent
+  const topShopeeEquiv = acceptable.find(
+    (e) => findSourceByUrl(e.result.url)?.tier === 1 || findSourceByUrl(e.result.url)?.id === 'shopee'
+  );
+  // Priority 4: First acceptable
+  const best = (topShopeeExact || topExact || topShopeeEquiv || acceptable[0]).result;
+  const bestGrade = (topShopeeExact || topExact || topShopeeEquiv || acceptable[0]).classification;
+
+  const source = findSourceByUrl(best.url);
   const quantity = item.quantity > 0 ? item.quantity : 1;
   const currentManual = item.manualPrice?.amount || 0;
 
-  const alternatives: BomItemAlternative[] = buildDiverseAlternatives(first.url, ranked);
+  const acceptableResults = acceptable.map((a) => a.result);
+  const alternatives: BomItemAlternative[] = buildDiverseAlternatives(best.url, acceptableResults);
 
   return {
     ...item,
     unitPrice: currentManual,
     totalPrice: currentManual * quantity,
     status: 'found',
-    selectedLink: first.url,
+    selectedLink: best.url,
     supplierName: source?.name,
     supplierDomain: source?.domain,
     supplierTier: source?.tier,
     supplierCountry: source?.country,
     linkStatus: 'verified',
-    matchType: 'best_match',
-    note: item.note || `Chọn từ ${source?.name || 'nhà cung cấp chuyên ngành'}`,
+    matchType: bestGrade.grade === 'exact_match' ? 'best_match' : 'alternative',
+    note: item.note || `Chọn từ ${source?.name || 'nhà cung cấp'}: ${bestGrade.reason}`,
     alternatives,
   };
 }
@@ -257,6 +326,7 @@ export async function optimizeBomItemWithSearchResults(
   baseUrl?: string,
   model?: string
 ): Promise<BomItem> {
+  const knowledge = understandComponent(item.name);
   const rankedResults = filterAndRankSearchResults(searchResults, item.name);
   if (!rankedResults || rankedResults.length === 0) {
     return {
@@ -266,6 +336,9 @@ export async function optimizeBomItemWithSearchResults(
       linkStatus: 'unverified',
       unitPrice: item.manualPrice?.amount || 0,
       totalPrice: (item.manualPrice?.amount || 0) * (item.quantity > 0 ? item.quantity : 1),
+      note: item.note || (knowledge.modelCode
+        ? `Không tìm thấy sản phẩm khớp với mã '${knowledge.modelCode}'.`
+        : 'Không tìm thấy sản phẩm phù hợp.'),
       alternatives: item.alternatives || [],
     };
   }
@@ -329,6 +402,7 @@ ${rankedResults
     const cleaned = cleanJsonFromLlmOutput(content);
     const parsed = JSON.parse(cleaned);
 
+    const knowledge = understandComponent(item.name);
     let selectedUrl = '';
     const proposed = typeof parsed?.selectedUrl === 'string' ? parsed.selectedUrl.trim() : '';
 
@@ -338,15 +412,23 @@ ${rankedResults
       isAllowedSourceUrl(proposed) &&
       rankedResults.some((r) => r.url === proposed)
     ) {
-      selectedUrl = proposed;
-    } else {
-      selectedUrl = rankedResults[0].url;
+      const targetResult = rankedResults.find((r) => r.url === proposed)!;
+      const match = classifyProductMatch(knowledge, targetResult);
+      if (match.grade !== 'no_match') {
+        selectedUrl = proposed;
+      }
     }
 
-    // Strict Shopee priority guarantee: If any Shopee product exists in ranked results, prioritize it as selectedUrl
+    if (!selectedUrl) {
+      return fallbackHeuristic(item, rankedResults);
+    }
+
+    // Strict Shopee priority guarantee: If any Shopee product with exact/equivalent match exists, prioritize it
     const shopeeCandidate = rankedResults.find((r) => {
       const s = findSourceByUrl(r.url);
-      return s?.id === 'shopee' || s?.tier === 1;
+      if (s?.id !== 'shopee' && s?.tier !== 1) return false;
+      const m = classifyProductMatch(knowledge, r);
+      return m.grade === 'exact_match' || m.grade === 'equivalent';
     });
     if (shopeeCandidate) {
       const chosenSource = findSourceByUrl(selectedUrl);

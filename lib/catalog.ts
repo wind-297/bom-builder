@@ -1,4 +1,5 @@
 import { BomSearchResult } from './types';
+import { understandComponent } from './component-understanding';
 
 export interface CatalogProduct {
   keywords: string[];
@@ -13,10 +14,10 @@ export interface CatalogProduct {
 export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
   // 1. VI ĐIỀU KHIỂN & MÁY TÍNH NHÚNG
   {
-    keywords: ['esp32', 'nodemcu', 'esp-32', 'esp 32'],
-    title: 'Kit RF Thu Phát WiFi BLE ESP32 NodeMCU Lua CP2102',
+    keywords: ['esp32', 'nodemcu', 'esp-32', 'esp 32', 'esp32 devkit v1', 'devkit v1'],
+    title: 'Kit RF Thu Phát WiFi BLE ESP32 DevKit V1 NodeMCU Lua CP2102',
     url: 'https://shopee.vn/kit-rf-thu-phat-wifi-ble-esp32-nodemcu-cp2102-i.84157123.1420556112',
-    snippet: 'Kit RF Thu Phát WiFi BLE ESP32 NodeMCU Lua CP2102. Vi điều khiển 32-bit lõi kép 240MHz, tích hợp Wi-Fi 802.11 b/g/n và Bluetooth 4.2 BLE.',
+    snippet: 'Kit RF Thu Phát WiFi BLE ESP32 DevKit V1 NodeMCU Lua CP2102. Vi điều khiển 32-bit lõi kép 240MHz, tích hợp Wi-Fi 802.11 b/g/n và Bluetooth 4.2 BLE.',
     subsystem: 'Hệ thống điều khiển',
     source: 'Shopee.vn',
     alternatives: [
@@ -237,6 +238,26 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
     ],
   },
   {
+    keywords: ['n20', 'motor n20', 'động cơ n20', 'n20 12v', 'n20-12v', 'motor n20 12v'],
+    title: 'Động Cơ DC Giảm Tốc N20 12V Trục D Kim Loại Mini',
+    url: 'https://shopee.vn/dong-co-dc-giam-toc-n20-12v-truc-d-kim-loai-i.84157123.4366211234',
+    snippet: 'Động cơ DC giảm tốc N20 12V kim loại mini. Điện áp 12VDC, hộp số bánh răng kim loại siêu bền, lực kéo khỏe cho robot mini và mô hình.',
+    subsystem: 'Hệ thống truyền động',
+    source: 'Shopee.vn',
+    alternatives: [
+      {
+        title: 'Động cơ giảm tốc N20 12V Nshop',
+        url: 'https://nshopvn.com/product/dong-co-giam-toc-n20-12v/',
+        source: 'Nshopvn.com',
+      },
+      {
+        title: 'Động cơ DC giảm tốc N20 Hshop',
+        url: 'https://hshop.vn/dong-co-dc-giam-toc-n20',
+        source: 'Hshop.vn',
+      },
+    ],
+  },
+  {
     keywords: ['động cơ v1', 'động cơ giảm tốc vàng', 'động cơ tt', 'động cơ vàng'],
     title: 'Động Cơ DC Giảm Tốc TT Vàng 1:48 (Loại Tốt 3-6V)',
     url: 'https://shopee.vn/dong-co-dc-giam-toc-tt-vang-kem-banh-xe-65mm-i.84157123.2754761234',
@@ -425,6 +446,21 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
       },
     ],
   },
+  {
+    keywords: ['3v670', 'dây curoa 3v670', 'dây đai 3v670', '3v-670', 'dây curoa', 'dây đai'],
+    title: 'Dây Curoa 3V670 Dây Đai Truyền Động Chữ V Bando Mitsuboshi',
+    url: 'https://shopee.vn/day-curoa-3v670-day-dai-truyen-dong-i.84157123.4255101234',
+    snippet: 'Dây Curoa 3V670 dây đai truyền động chữ V công nghiệp. Chiều dài chuẩn 67.0 inch (1702mm), bản rộng 3V 9.5mm, chịu tải nhiệt và ma sát cao cho cơ cấu truyền động.',
+    subsystem: 'Khung cơ khí & Bánh xe',
+    source: 'Shopee.vn',
+    alternatives: [
+      {
+        title: 'Dây đai truyền động timing belt GT2 Nshop',
+        url: 'https://nshopvn.com/product/day-dai-gt2-ban-6mm/',
+        source: 'Nshopvn.com',
+      },
+    ],
+  },
 
   // 6. PHỤ KIỆN & DÂY NỐI (ACCESSORIES & WIRING)
   {
@@ -477,9 +513,63 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
 export function findCatalogMatches(query: string, maxResults: number = 5): BomSearchResult[] {
   if (!query) return [];
   const normalized = query.toLowerCase().trim();
-  const words = normalized.split(/\s+/).filter((w) => w.length > 1);
+  const info = understandComponent(query);
 
-  // Score each catalog entry
+  // If query specifies a distinct model code, require model code match
+  if (info.modelCode) {
+    const targetModel = info.modelCode.toLowerCase();
+    const cleanTargetModel = targetModel.replace(/[-_ ]/g, '');
+
+    const matchedEntries = ROBOTICS_PRODUCT_CATALOG.filter((item) => {
+      const lowerTitle = item.title.toLowerCase();
+      const lowerSnippet = item.snippet.toLowerCase();
+      const hasInKeywords = item.keywords.some((k) => {
+        const cleanK = k.toLowerCase().replace(/[-_ ]/g, '');
+        return cleanK.includes(cleanTargetModel) || cleanTargetModel.includes(cleanK);
+      });
+      const hasInTitle = lowerTitle.includes(targetModel) || lowerTitle.replace(/[-_ ]/g, '').includes(cleanTargetModel);
+      const hasInSnippet = lowerSnippet.includes(targetModel) || lowerSnippet.replace(/[-_ ]/g, '').includes(cleanTargetModel);
+
+      if (!hasInKeywords && !hasInTitle && !hasInSnippet) return false;
+
+      // If voltage spec exists (e.g. 12V), verify no voltage conflict
+      if (info.specifications.voltage) {
+        const requiredVolt = info.specifications.voltage.toLowerCase();
+        const fullText = `${lowerTitle} ${lowerSnippet}`;
+        if (requiredVolt === '12v' && (fullText.includes('3v') || fullText.includes('5v')) && !fullText.includes('12v')) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    const results: BomSearchResult[] = [];
+    for (const item of matchedEntries.slice(0, maxResults)) {
+      results.push({
+        title: item.title,
+        url: item.url,
+        content: item.snippet,
+        engine: item.source,
+      });
+
+      if (item.alternatives) {
+        for (const alt of item.alternatives) {
+          if (results.length >= maxResults) break;
+          results.push({
+            title: alt.title,
+            url: alt.url,
+            content: `${alt.title} từ ${alt.source}`,
+            engine: alt.source,
+          });
+        }
+      }
+    }
+    return results.slice(0, maxResults);
+  }
+
+  // Generic query matching
+  const words = normalized.split(/\s+/).filter((w) => w.length > 1);
   const scored = ROBOTICS_PRODUCT_CATALOG.map((item) => {
     let score = 0;
 
@@ -490,22 +580,26 @@ export function findCatalogMatches(query: string, maxResults: number = 5): BomSe
       }
     }
 
-    // Individual word matching in title and snippet
     const lowerTitle = item.title.toLowerCase();
     const lowerSnippet = item.snippet.toLowerCase();
 
+    // Check if category matches
+    if (info.category.includes('Dây curoa') && (item.subsystem.includes('Khung cơ khí') && (item.title.includes('Dây') || item.keywords.includes('dây curoa')))) {
+      score += 40;
+    }
+
     for (const w of words) {
+      if (['dây', 'mạch', 'bộ', 'cái', 'linh', 'kiện'].includes(w)) continue; // ignore ambiguous single stop words
       if (lowerTitle.includes(w)) score += 15;
       else if (lowerSnippet.includes(w)) score += 5;
     }
 
     return { item, score };
   })
-    .filter((entry) => entry.score > 0)
+    .filter((entry) => entry.score >= 40)
     .sort((a, b) => b.score - a.score);
 
   const results: BomSearchResult[] = [];
-
   for (const { item } of scored.slice(0, maxResults)) {
     results.push({
       title: item.title,
