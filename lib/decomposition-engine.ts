@@ -1,7 +1,6 @@
 import { BomItem, createNewBomItem } from './types';
 import { getAppSettings } from './config';
 import { cleanJsonFromLlmOutput } from './llm';
-import { findCatalogMatches } from './catalog';
 import { findSourceByUrl } from './sources';
 
 export type SearchIntent = 'single_product' | 'project_bom';
@@ -332,37 +331,9 @@ export async function decomposeProjectOrProduct(
     singleItem.unitPrice = 0;
     singleItem.totalPrice = 0;
     singleItem.manualPrice = { amount: null, currency: 'VND', entrySource: null };
-
-    const matches = findCatalogMatches(cleanName, 3);
-    if (matches.length > 0) {
-      const best = matches[0];
-      const source = findSourceByUrl(best.url);
-      singleItem.selectedLink = best.url;
-      singleItem.supplierName = source?.name;
-      singleItem.supplierDomain = source?.domain;
-      singleItem.supplierTier = source?.tier;
-      singleItem.supplierCountry = source?.country;
-      singleItem.linkStatus = 'verified';
-      singleItem.matchType = 'best_match';
-      singleItem.status = 'found';
-
-      if (matches.length > 1) {
-        singleItem.alternatives = matches.slice(1).map((m, idx) => {
-          const altSource = findSourceByUrl(m.url);
-          return {
-            title: m.title,
-            url: m.url,
-            supplierName: altSource?.name,
-            supplierDomain: altSource?.domain,
-            supplierTier: altSource?.tier,
-            supplierCountry: altSource?.country,
-            linkStatus: 'verified',
-            matchType: idx === 0 ? 'most_reliable' : 'alternative',
-            reason: 'Linh kiện thay thế từ nguồn uy tín',
-          };
-        });
-      }
-    }
+    singleItem.status = 'pending';
+    singleItem.selectedLink = '';
+    singleItem.linkStatus = 'unverified';
 
     return {
       intent: 'single_product',
@@ -500,37 +471,9 @@ function generateFallbackRobotBom(prompt: string, ownedItems: string[]): BomItem
       it.note += ' (Đã có sẵn)';
     }
 
-    // Attach verified product link from catalog if available (No price)
-    const matches = findCatalogMatches(`${name} ${spec}`, 3);
-    if (matches.length > 0) {
-      const best = matches[0];
-      const source = findSourceByUrl(best.url);
-      it.selectedLink = best.url;
-      it.supplierName = source?.name;
-      it.supplierDomain = source?.domain;
-      it.supplierTier = source?.tier;
-      it.supplierCountry = source?.country;
-      it.linkStatus = 'verified';
-      it.matchType = 'best_match';
-      it.status = 'found';
-
-      if (matches.length > 1) {
-        it.alternatives = matches.slice(1).map((m, idx) => {
-          const altSource = findSourceByUrl(m.url);
-          return {
-            title: m.title,
-            url: m.url,
-            supplierName: altSource?.name,
-            supplierDomain: altSource?.domain,
-            supplierTier: altSource?.tier,
-            supplierCountry: altSource?.country,
-            linkStatus: 'verified',
-            matchType: idx === 0 ? 'most_reliable' : 'alternative',
-            reason: 'Linh kiện tương đương từ nguồn uy tín',
-          };
-        });
-      }
-    }
+    it.status = 'pending';
+    it.selectedLink = '';
+    it.linkStatus = 'unverified';
 
     items.push(it);
   };

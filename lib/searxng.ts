@@ -101,55 +101,7 @@ export function extractCoreSearchTerms(query: string): string[] {
  * - English technical synonym (when applicable)
  */
 export function buildShopeeQueries(name: string, specification?: string): string[] {
-  const cleanName = (name || '').trim();
-  const cleanSpec = (specification || '').trim();
-  if (!cleanName) return [];
-
-  const coreTerms = extractCoreSearchTerms(cleanName);
-  const primary = coreTerms[0] || cleanName;
-  const secondary = coreTerms[1];
-
-  const queries: string[] = [];
-
-  // 1. Exact primary term / model on Shopee
-  queries.push(`site:shopee.vn ${primary}`);
-
-  // 2. Model + key voltage/spec (e.g. "12V", "5V", "5 kênh") if found in name or spec
-  const specSource = `${cleanName} ${cleanSpec}`;
-  const keySpecMatch = specSource.match(/\b(\d+(?:\.\d+)?\s*(?:V|A|W|rpm|kênh|mắt|dof|mm|mah))\b/i);
-  if (keySpecMatch && keySpecMatch[1]) {
-    const specToken = keySpecMatch[1].replace(/\s+/g, '');
-    if (!primary.toLowerCase().includes(specToken.toLowerCase())) {
-      queries.push(`site:shopee.vn ${primary} ${specToken}`);
-    }
-  }
-
-  // 3. Vietnamese phrase if different from primary model code
-  if (secondary && secondary.toLowerCase() !== primary.toLowerCase()) {
-    queries.push(`site:shopee.vn ${secondary}`);
-  }
-
-  // 4. English technical equivalent if matching known robotics terms
-  for (const [pattern, enTerm] of VI_TO_EN_SYNONYMS) {
-    if (pattern.test(cleanName) && !primary.toLowerCase().includes(enTerm.toLowerCase())) {
-      queries.push(`site:shopee.vn ${enTerm}`);
-      break;
-    }
-  }
-
-  // Deduplicate case-insensitively and cap at 3 non-redundant queries
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  for (const q of queries) {
-    const key = q.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(q);
-    }
-    if (unique.length >= 3) break;
-  }
-
-  return unique;
+  return buildExpandedShopeeQueries(name, specification);
 }
 
 /**
@@ -243,10 +195,21 @@ export function filterAllowedProductResults(results: BomSearchResult[]): BomSear
     if (seenUrls.has(normalizedUrl)) continue;
     seenUrls.add(normalizedUrl);
 
+    if (!item.evidence) {
+      const src = findSourceByUrl(item.url);
+      item.evidence = {
+        originalUrl: item.url,
+        searchQuery: '',
+        sourceDomain: src?.domain || 'unknown',
+        provider: item.engine || 'searxng',
+        retrievedAt: new Date().toISOString(),
+      };
+    }
+
     clean.push(item);
   }
 
-  // Sort Vietnam-first: Tier 1 -> Tier 2 -> Tier 3, then by defaultTrustScore
+  // Sort Vietnam-first: Shopee (Tier 1) -> Specialized Stores (Tier 2) -> Other Marketplaces (Tier 3) -> International (Tier 4)
   return clean.sort((a, b) => {
     const srcA = findSourceByUrl(a.url);
     const srcB = findSourceByUrl(b.url);
@@ -297,12 +260,16 @@ export interface SearchWithLogResponse {
 }
 
 /**
- * Mandatory Shopee + Parallel Vietnam Tier 1 Multi-Tier Search Orchestrator:
- * 1. ALWAYS executes Mandatory Shopee Vietnam search (`site:shopee.vn ...`) via SearXNG.
- * 2. Runs Specialized Vietnamese Tier 1 Stores (Hshop, NShop, LKCG, Banlinhkien) in PARALLEL.
- * 3. Expands to Additional Vietnamese Marketplaces (Lazada, Tiki) if needed for coverage.
- * 4. Expands to Tier 3 International Suppliers ONLY when Vietnam sources yield 0 valid results.
- * 5. Produces a transparent SearchLog auditing every Shopee query executed and exact retention counts.
+ * Mandatory Shopee-First Multi-Tier Search Orchestrator:
+ * 1. ALWAYS executes Mandatory Shopee Vietnam search (`site:shopee.vn ...`) via SearXNG first.
+ * 2. Extracts and validates Shopee product candidates (strict path format, no fake URLs).
+ * 3. Evaluates if Shopee results are sufficient:
+ *    - YES: Presents Shopee results first, then queries specialized stores (Tier 2) to populate supplementary alternatives.
+ *    - NO: Sets `shopee_search_status = no_reliable_result`, then searches specialized stores (Tier 2).
+ * 4. Expands to Additional Marketplaces (Lazada, Tiki) if coverage is low (< 3).
+ * 5. Expands to International Suppliers ONLY when Vietnam sources yield 0 valid results.
+ * 6. Attaches verifiable provenance (evidence) to every product result.
+ * 7. Produces a transparent SearchLog auditing queries and retention counts.
  */
 export async function searchWithMandatoryShopee(
   query: string,
@@ -327,6 +294,7 @@ export async function searchWithMandatoryShopee(
         shopeeProductsRetained: 0,
         specializedProductsRetained: 0,
         statusNotes: 'Truy vấn trống',
+        shopee_search_status: 'not_searched',
       },
     };
   }
@@ -337,77 +305,147 @@ export async function searchWithMandatoryShopee(
   const specializedQueries = [...coreTerms];
   const additionalQueries: string[] = [];
 
-  const allRaw: BomSearchResult[] = [];
   let rawShopeeCount = 0;
   let rawSpecializedCount = 0;
-  let shopeeRequestErrors: string[] = [];
+  const shopeeRequestErrors: string[] = [];
+  const rawShopeeResults: BomSearchResult[] = [];
 
-  // STEP 1 & 2 (PARALLEL): Mandatory Shopee Search + Specialized Tier 1 Vietnamese Stores
-  const [shopeeSettled, tier1Settled, searxPrimarySettled] = await Promise.allSettled([
-    // Mandatory Shopee search via SearXNG (never skipped, even if Tier 1 succeeds)
-    (async () => {
-      const collected: BomSearchResult[] = [];
-      const errors: string[] = [];
-      const responses = await Promise.all(
-        shopeeQueries.map((sq) => querySearxngEndpoint(baseUrl, sq))
-      );
-      for (const resp of responses) {
-        if (!resp.ok && resp.error) {
-          errors.push(resp.error);
-        }
-        collected.push(...resp.results);
+  // STAGE 1: Mandatory Shopee Vietnam Search (site:shopee.vn queries via SearXNG)
+  const shopeeResponses = await Promise.all(
+    shopeeQueries.map(async (sq) => {
+      const resp = await querySearxngEndpoint(baseUrl, sq);
+      if (!resp.ok && resp.error) {
+        shopeeRequestErrors.push(resp.error);
       }
-      return { collected, errors };
-    })(),
-    // Parallel Tier 1 specialized VN electronics stores
+      return { query: sq, resp };
+    })
+  );
+
+  for (const item of shopeeResponses) {
+    if (item.resp.results && item.resp.results.length > 0) {
+      for (const r of item.resp.results) {
+        rawShopeeResults.push({
+          ...r,
+          evidence: {
+            originalUrl: r.url,
+            searchQuery: item.query,
+            sourceDomain: 'shopee.vn',
+            provider: r.engine || 'shopee',
+            retrievedAt: timestamp,
+          },
+        });
+      }
+    }
+  }
+
+  rawShopeeCount = rawShopeeResults.filter((r) => {
+    const src = findSourceByUrl(r.url);
+    return src?.id === 'shopee';
+  }).length;
+
+  // Filter raw Shopee results to allowed specific product pages
+  const filteredShopee = filterAllowedProductResults(rawShopeeResults).filter((r) => {
+    const src = findSourceByUrl(r.url);
+    return src?.id === 'shopee' || src?.tier === 1;
+  });
+
+  const shopeeFound = filteredShopee.length > 0;
+  let shopeeStatus: 'found' | 'no_reliable_result' | 'searxng_unreachable' = 'no_reliable_result';
+
+  if (shopeeFound) {
+    shopeeStatus = 'found';
+  } else if (shopeeRequestErrors.length === shopeeQueries.length && shopeeQueries.length > 0) {
+    shopeeStatus = 'searxng_unreachable';
+  } else {
+    shopeeStatus = 'no_reliable_result';
+  }
+
+  // STAGE 2: Query Specialized Electronics Stores (Tier 2) & General Search
+  // If Shopee succeeded, specialized stores serve as supplementary alternatives.
+  // If Shopee had no results, specialized stores serve as primary alternatives.
+  const specializedRaw: BomSearchResult[] = [];
+
+  const [storesSettled, searxPrimarySettled] = await Promise.allSettled([
     (async () => {
       const collected: BomSearchResult[] = [];
       for (const term of coreTerms) {
         const found = await searchVietnamTier1Stores(term, 6);
-        collected.push(...found);
+        for (const f of found) {
+          collected.push({
+            ...f,
+            evidence: f.evidence || {
+              originalUrl: f.url,
+              searchQuery: term,
+              sourceDomain: findSourceByUrl(f.url)?.domain || 'specialized_store',
+              provider: f.engine || 'store_adapter',
+              retrievedAt: timestamp,
+            },
+          });
+        }
         if (collected.length >= 6) break;
       }
       return collected;
     })(),
-    // Primary SearXNG query (captures additional Tier 1 / VN store results)
-    querySearxngEndpoint(baseUrl, trimmed),
+    (async () => {
+      const resp = await querySearxngEndpoint(baseUrl, trimmed);
+      return resp.results.map((r) => ({
+        ...r,
+        evidence: r.evidence || {
+          originalUrl: r.url,
+          searchQuery: trimmed,
+          sourceDomain: findSourceByUrl(r.url)?.domain || 'searxng',
+          provider: r.engine || 'searxng',
+          retrievedAt: timestamp,
+        },
+      }));
+    })(),
   ]);
 
-  if (shopeeSettled.status === 'fulfilled') {
-    const { collected, errors } = shopeeSettled.value;
-    shopeeRequestErrors = errors;
-    rawShopeeCount = collected.filter((r) => {
-      const src = findSourceByUrl(r.url);
-      return src?.id === 'shopee';
-    }).length;
-    allRaw.push(...collected);
-  }
-
-  if (tier1Settled.status === 'fulfilled') {
-    rawSpecializedCount += tier1Settled.value.length;
-    allRaw.push(...tier1Settled.value);
+  if (storesSettled.status === 'fulfilled') {
+    rawSpecializedCount += storesSettled.value.length;
+    specializedRaw.push(...storesSettled.value);
   }
 
   if (searxPrimarySettled.status === 'fulfilled') {
-    rawSpecializedCount += searxPrimarySettled.value.results.length;
-    allRaw.push(...searxPrimarySettled.value.results);
+    rawSpecializedCount += searxPrimarySettled.value.length;
+    specializedRaw.push(...searxPrimarySettled.value);
   }
 
-  let filtered = filterAllowedProductResults(allRaw);
+  const filteredSpecialized = filterAllowedProductResults(specializedRaw).filter((r) => {
+    const src = findSourceByUrl(r.url);
+    return src?.id !== 'shopee' && src?.tier !== 1;
+  });
 
-  // STEP 3: Additional Vietnamese Marketplaces (Lazada, Tiki) if coverage is still low (< 3 results)
-  if (filtered.length < 3 && coreTerms[0]) {
+  // Combine results: Shopee candidates ALWAYS come first!
+  let combinedResults = [...filteredShopee, ...filteredSpecialized];
+
+  // STAGE 3: Additional Vietnamese Marketplaces (Lazada, Tiki) if coverage is low (< 3 results)
+  if (combinedResults.length < 3 && coreTerms[0]) {
     const additionalMarketQuery = `${coreTerms[0]} (site:lazada.vn OR site:tiki.vn)`;
     additionalQueries.push(additionalMarketQuery);
     const marketResp = await querySearxngEndpoint(baseUrl, additionalMarketQuery);
     if (marketResp.results.length > 0) {
-      allRaw.push(...marketResp.results);
-      filtered = filterAllowedProductResults(allRaw);
+      const marketResults = marketResp.results.map((r) => ({
+        ...r,
+        evidence: {
+          originalUrl: r.url,
+          searchQuery: additionalMarketQuery,
+          sourceDomain: findSourceByUrl(r.url)?.domain || 'marketplace',
+          provider: r.engine || 'searxng',
+          retrievedAt: timestamp,
+        },
+      }));
+      const extraFiltered = filterAllowedProductResults(marketResults);
+      for (const ef of extraFiltered) {
+        if (!combinedResults.some((c) => c.url === ef.url)) {
+          combinedResults.push(ef);
+        }
+      }
     }
   }
 
-  // STEP 4: Tier 3 International Fallback ONLY when Vietnam sources returned 0 valid products
-  const hasVietnamResults = filtered.some((item) => {
+  // STAGE 4: International Fallback ONLY when Vietnam sources returned 0 valid products
+  const hasVietnamResults = combinedResults.some((item) => {
     const src = findSourceByUrl(item.url);
     return src && src.country === 'VN';
   });
@@ -417,18 +455,32 @@ export async function searchWithMandatoryShopee(
     additionalQueries.push(intlQuery);
     const intlResp = await querySearxngEndpoint(baseUrl, intlQuery);
     if (intlResp.results.length > 0) {
-      allRaw.push(...intlResp.results);
-      filtered = filterAllowedProductResults(allRaw);
+      const intlResults = intlResp.results.map((r) => ({
+        ...r,
+        evidence: {
+          originalUrl: r.url,
+          searchQuery: intlQuery,
+          sourceDomain: findSourceByUrl(r.url)?.domain || 'international',
+          provider: r.engine || 'searxng',
+          retrievedAt: timestamp,
+        },
+      }));
+      const extraFiltered = filterAllowedProductResults(intlResults);
+      for (const ef of extraFiltered) {
+        if (!combinedResults.some((c) => c.url === ef.url)) {
+          combinedResults.push(ef);
+        }
+      }
     }
   }
 
-  const shopeeProductsRetained = filtered.filter((r) => {
+  const shopeeProductsRetained = combinedResults.filter((r) => {
     const s = findSourceByUrl(r.url);
     return s?.id === 'shopee' || s?.tier === 1;
   }).length;
-  const specializedProductsRetained = filtered.filter((r) => findSourceByUrl(r.url)?.tier === 2).length;
+  const specializedProductsRetained = combinedResults.filter((r) => findSourceByUrl(r.url)?.tier === 2).length;
 
-  let statusNotes: string | undefined;
+  let statusNotes: string;
   if (shopeeProductsRetained > 0) {
     statusNotes = `Đã tìm thấy ${shopeeProductsRetained} sản phẩm Shopee VN và ${specializedProductsRetained} sản phẩm từ cửa hàng chuyên ngành.`;
   } else if (shopeeRequestErrors.length === shopeeQueries.length && shopeeQueries.length > 0) {
@@ -447,14 +499,15 @@ export async function searchWithMandatoryShopee(
     ...(additionalQueries.length > 0 ? { additionalQueries } : {}),
     rawShopeeCount,
     rawSpecializedCount,
-    totalFilteredCount: filtered.length,
+    totalFilteredCount: combinedResults.length,
     shopeeFound: shopeeProductsRetained > 0,
     shopeeProductsRetained,
     specializedProductsRetained,
     statusNotes,
+    shopee_search_status: shopeeStatus,
   };
 
-  return { results: filtered, searchLog };
+  return { results: combinedResults, searchLog };
 }
 
 /**

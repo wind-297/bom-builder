@@ -285,7 +285,7 @@ export default function Home() {
           current: i,
           total: pendingItems.length,
           currentItemName: currentItem.name,
-          step: 'Đang tìm song song: Shopee VN & Cửa hàng chuyên ngành...',
+          step: 'Đang tìm kiếm ưu tiên Shopee Việt Nam...',
         });
 
         // Set status 'searching'

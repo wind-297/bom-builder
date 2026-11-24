@@ -1,5 +1,5 @@
 import { BomSearchResult } from './types';
-import { understandComponent, classifyProductMatch } from './component-understanding';
+import { understandComponent } from './component-understanding';
 
 export interface CatalogProduct {
   keywords: string[];
@@ -101,7 +101,7 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
 
   // 2. CẢM BIẾN (SENSORS)
   {
-    keywords: ['cảm biến dò line', 'dò line', 'tcrt5000', 'line sensor', 'bám vạch', 'cảm biến dò vạch', 'line tracking sensor', 'module dò line'],
+    keywords: ['cảm biến dò line', 'dò line', 'tcrt5000', 'line sensor', 'bám vạch'],
     title: 'Mạch Cảm Biến Dò Line 5 Kênh TCRT5000 Line Tracker',
     url: 'https://shopee.vn/mach-cam-bien-do-line-5-kenh-tcrt5000-line-tracker-i.84157123.1966881234',
     snippet: 'Mạch cảm biến dò line 5 kênh TCRT5000. Phát hiện vạch đen trắng độ nhạy cao, ngõ ra số Digital dễ đọc với Arduino và ESP32.',
@@ -223,17 +223,7 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
     ],
   },
   {
-    keywords: [
-      'ga25',
-      'động cơ ga25',
-      'động cơ dc giảm tốc ga25',
-      'động cơ robot chạy nhanh',
-      'động cơ tốc độ cao',
-      'động cơ robot',
-      'motor dc',
-      'fast motor',
-      'động cơ xe robot'
-    ],
+    keywords: ['ga25', 'động cơ ga25', 'động cơ dc giảm tốc ga25', 'động cơ robot chạy nhanh', 'động cơ chạy nhanh', 'động cơ tốc độ cao', 'motor chạy nhanh', 'động cơ robot'],
     title: 'Động Cơ DC Giảm Tốc GA25 12VDC Kèm Gá Nhôm (Nhiều Tốc Độ)',
     url: 'https://shopee.vn/dong-co-dc-giam-toc-kim-loai-ga25-12vdc-i.84157123.2643651234',
     snippet: 'Động cơ DC giảm tốc kim loại GA25 12V. Bánh răng thép siêu bền, lực kéo khỏe 2-4kg.cm, tốc độ 100-300rpm.',
@@ -268,7 +258,7 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
     ],
   },
   {
-    keywords: ['động cơ v1', 'động cơ giảm tốc vàng', 'động cơ tt', 'động cơ vàng'],
+    keywords: ['động cơ v1', 'động cơ giảm tốc vàng', 'động cơ tt', 'động cơ vàng', 'động cơ robot', 'động cơ xe robot'],
     title: 'Động Cơ DC Giảm Tốc TT Vàng 1:48 (Loại Tốt 3-6V)',
     url: 'https://shopee.vn/dong-co-dc-giam-toc-tt-vang-kem-banh-xe-65mm-i.84157123.2754761234',
     snippet: 'Động cơ DC giảm tốc TT vàng 1:48. Điện áp 3V-6V, trục kép gắn bánh xe chuyên dụng cho xe robot học sinh sinh viên.',
@@ -365,19 +355,7 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
     ],
   },
   {
-    keywords: [
-      'hạ áp',
-      'lm2596',
-      'buck',
-      'bước giảm áp',
-      'nguồn hạ áp',
-      'module chuyển nguồn',
-      'chuyển nguồn',
-      'bộ giảm áp',
-      'mạch hạ áp',
-      'dc-dc converter',
-      'buck converter'
-    ],
+    keywords: ['hạ áp', 'lm2596', 'buck', 'bước giảm áp', 'nguồn hạ áp', 'module chuyển nguồn', 'mạch chuyển nguồn', 'chuyển nguồn', 'bộ chuyển nguồn'],
     title: 'Mạch Giảm Áp DC-DC Buck LM2596 3A Có Hiển Thị Led Vôn Kế',
     url: 'https://shopee.vn/mach-giam-ap-dc-dc-buck-lm2596-3a-co-dong-ho-do-ap-led-i.84157123.3310321234',
     snippet: 'Mạch hạ áp LM2596 3A có đồng hồ LED đo điện áp. Giảm từ 7.4V-12V pin xuống 5V chuẩn cấp nguồn cho vi điều khiển.',
@@ -454,15 +432,7 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
     ],
   },
   {
-    keywords: [
-      'bánh xe',
-      'bánh cao su',
-      'bánh xe 65mm',
-      'bánh xe robot',
-      'robot wheel',
-      'wheel for mobile robot',
-      'bánh xe v1'
-    ],
+    keywords: ['bánh xe', 'bánh cao su', 'bánh xe 65mm', 'bánh xe robot', 'robot wheel'],
     title: 'Bánh Xe Cao Su V1 Đường Kính 65mm Trục Vát TT',
     url: 'https://shopee.vn/banh-xe-cao-su-robot-v1-duong-kinh-65mm-truc-vat-tt-i.84157123.3865871234',
     snippet: 'Bánh xe cao su robot V1 đường kính 65mm. Lốp cao su bám đường tốt, khớp trục động cơ vàng TT.',
@@ -477,25 +447,16 @@ export const ROBOTICS_PRODUCT_CATALOG: CatalogProduct[] = [
     ],
   },
   {
-    keywords: [
-      'giá đỡ động cơ',
-      'gá động cơ',
-      'gá nhôm động cơ',
-      'motor bracket',
-      'motor mounting holder',
-      'gá motor',
-      'giá đỡ motor',
-      'gá nhôm ga25'
-    ],
-    title: 'Gá Nhôm Chữ L Giá Đỡ Động Cơ GA25 Kèm Ốc Vít M3',
-    url: 'https://shopee.vn/ga-nhom-chu-l-gia-do-dong-co-ga25-kem-oc-vit-i.84157123.3647181234',
-    snippet: 'Gá nhôm chữ L dày 2mm cố định động cơ GA25 lên khung xe robot. Đi kèm ốc vít bulong M3 chắc chắn, tương thích motor bracket robot.',
+    keywords: ['giá đỡ động cơ', 'gá động cơ', 'gá nhôm động cơ', 'motor bracket', 'gá motor', 'giá đỡ'],
+    title: 'Gá Nhôm Chữ L Gắn Động Cơ GA25 / 370 Kèm Ốc Vít',
+    url: 'https://shopee.vn/ga-nhom-chu-l-gan-dong-co-ga25-kem-oc-i.84157123.4477321234',
+    snippet: 'Gá nhôm chữ L cố định động cơ GA25, 370 vào khung xe robot. Chất liệu nhôm hợp kim dày 2mm cứng cáp, kèm ốc vít định vị.',
     subsystem: 'Khung cơ khí & Bánh xe',
     source: 'Shopee.vn',
     alternatives: [
       {
-        title: 'Gá nhôm chữ L động cơ GA25 Nshop',
-        url: 'https://nshopvn.com/product/ga-nhom-dong-co-ga25/',
+        title: 'Gá động cơ GA25 nhôm Nshop',
+        url: 'https://nshopvn.com/product/ga-dong-co-ga25/',
         source: 'Nshopvn.com',
       },
     ],
@@ -569,45 +530,121 @@ export function findCatalogMatches(query: string, maxResults: number = 5): BomSe
   const normalized = query.toLowerCase().trim();
   const info = understandComponent(query);
 
-  // Score each catalog entry using both semantic classification and keyword/synonym match
-  const scored = ROBOTICS_PRODUCT_CATALOG.map((item) => {
-    const fakeResult: BomSearchResult = {
-      title: item.title,
-      url: item.url,
-      content: item.snippet,
-      engine: item.source,
-    };
-    const classification = classifyProductMatch(info, fakeResult);
+  // If query specifies a distinct model code, require model code match
+  if (info.modelCode) {
+    const targetModel = info.modelCode.toLowerCase();
+    const cleanTargetModel = targetModel.replace(/[-_ ]/g, '');
 
-    if (classification.grade === 'no_match') {
-      return { item, score: 0 };
+    const matchedEntries = ROBOTICS_PRODUCT_CATALOG.filter((item) => {
+      const lowerTitle = item.title.toLowerCase();
+      const lowerSnippet = item.snippet.toLowerCase();
+      const hasInKeywords = item.keywords.some((k) => {
+        const cleanK = k.toLowerCase().replace(/[-_ ]/g, '');
+        return cleanK.includes(cleanTargetModel) || cleanTargetModel.includes(cleanK);
+      });
+      const hasInTitle = lowerTitle.includes(targetModel) || lowerTitle.replace(/[-_ ]/g, '').includes(cleanTargetModel);
+      const hasInSnippet = lowerSnippet.includes(targetModel) || lowerSnippet.replace(/[-_ ]/g, '').includes(cleanTargetModel);
+
+      if (!hasInKeywords && !hasInTitle && !hasInSnippet) return false;
+
+      // If voltage spec exists (e.g. 12V), verify no voltage conflict
+      if (info.specifications.voltage) {
+        const requiredVolt = info.specifications.voltage.toLowerCase();
+        const fullText = `${lowerTitle} ${lowerSnippet}`;
+        if (requiredVolt === '12v' && (fullText.includes('3v') || fullText.includes('5v')) && !fullText.includes('12v')) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    const results: BomSearchResult[] = [];
+    for (const item of matchedEntries.slice(0, maxResults)) {
+      results.push({
+        title: item.title,
+        url: item.url,
+        content: item.snippet,
+        engine: item.source,
+      });
+
+      if (item.alternatives) {
+        for (const alt of item.alternatives) {
+          if (results.length >= maxResults) break;
+          results.push({
+            title: alt.title,
+            url: alt.url,
+            content: `${alt.title} từ ${alt.source}`,
+            engine: alt.source,
+          });
+        }
+      }
     }
+    return results.slice(0, maxResults);
+  }
 
+  // Generic query matching
+  const words = normalized.split(/\s+/).filter((w) => w.length > 1);
+  const scored = ROBOTICS_PRODUCT_CATALOG.map((item) => {
     let score = 0;
-    if (classification.grade === 'exact_match') score += 150;
-    else if (classification.grade === 'strong_match' || classification.grade === 'equivalent') score += 100;
-    else if (classification.grade === 'possible_alternative') score += 60;
-    else if (classification.grade === 'related') score += 20;
 
     // Direct keyword match
     for (const kw of item.keywords) {
-      if (normalized.includes(kw) || kw.includes(normalized)) {
-        score += 40;
+      if (normalized.includes(kw)) {
+        score += 80;
+      }
+      if (kw.includes(normalized)) {
+        score += 80;
       }
     }
 
-    // Synonym match
-    if (info.synonyms?.vietnamese) {
-      for (const syn of info.synonyms.vietnamese) {
-        if (item.keywords.some((k) => k.includes(syn) || syn.includes(k))) {
-          score += 30;
-        }
+    const lowerTitle = item.title.toLowerCase();
+    const lowerSnippet = item.snippet.toLowerCase();
+
+    // Check if category matches
+    if (info.category.includes('Dây curoa')) {
+      if (item.subsystem.includes('Khung cơ khí') && (item.title.includes('Dây') || item.keywords.includes('dây curoa'))) {
+        score += 60;
+      } else {
+        score -= 100;
       }
+    }
+
+    if (info.category.includes('Gá đỡ') || normalized.includes('giá đỡ') || normalized.includes('gá')) {
+      if (lowerTitle.includes('gá') || item.keywords.includes('giá đỡ động cơ')) {
+        score += 100;
+      } else if (lowerTitle.includes('servo')) {
+        score -= 80;
+      }
+    }
+
+    if (info.category.includes('chuyển nguồn') || normalized.includes('chuyển nguồn') || normalized.includes('hạ áp')) {
+      if (lowerTitle.includes('lm2596') || item.keywords.includes('module chuyển nguồn')) {
+        score += 100;
+      }
+    }
+
+    if (normalized.includes('bánh xe')) {
+      if (lowerTitle.includes('bánh xe')) {
+        score += 80;
+      }
+    }
+
+    if (normalized.includes('dò line') || normalized.includes('dò vạch')) {
+      if (lowerTitle.includes('tcrt5000') || item.keywords.includes('cảm biến dò line')) {
+        score += 80;
+      }
+    }
+
+    for (const w of words) {
+      if (['dây', 'mạch', 'bộ', 'cái', 'linh', 'kiện', 'cho', 'của', 'loại'].includes(w)) continue; // ignore ambiguous single stop words
+      if (lowerTitle.includes(w)) score += 15;
+      else if (lowerSnippet.includes(w)) score += 5;
     }
 
     return { item, score };
   })
-    .filter((entry) => entry.score >= 50)
+    .filter((entry) => entry.score >= 40)
     .sort((a, b) => b.score - a.score);
 
   const results: BomSearchResult[] = [];

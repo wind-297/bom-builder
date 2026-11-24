@@ -6,12 +6,24 @@ export interface ManualPrice {
   note?: string;
 }
 
+export interface ProductSourceEvidence {
+  originalUrl: string;
+  resolvedUrl?: string;
+  searchQuery: string;
+  sourceDomain: string;
+  provider: string;
+  sourceResultId?: string;
+  retrievedAt: string;
+}
+
 export interface ProductLinkVerification {
   status: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
   lastCheckedAt?: string;
   httpStatus?: number;
   reason?: string;
 }
+
+export type MatchGrade = 'exact_match' | 'strong_match' | 'possible_alternative' | 'related' | 'no_match';
 
 export interface BomItemAlternative {
   title: string;
@@ -25,10 +37,12 @@ export interface BomItemAlternative {
   supplierCountry?: 'VN' | 'INT';
   supplierTier?: 1 | 2 | 3 | 4;
   linkStatus?: 'verified' | 'unverified' | 'dead' | 'invalid' | 'blocked';
-  matchType?: 'best_match' | 'strong_match' | 'most_reliable' | 'alternative' | 'possible_alternative' | 'related';
+  matchType?: 'best_match' | 'most_reliable' | 'alternative' | 'exact_match' | 'strong_match' | 'possible_alternative' | 'related';
+  matchGrade?: MatchGrade;
   reason?: string;
   // Legacy optional price field for backward compatibility
   price?: number;
+  evidence?: ProductSourceEvidence;
 }
 
 export interface SearchProduct {
@@ -53,7 +67,7 @@ export interface SearchProduct {
     score: number;
     reasons: string[];
     warnings: string[];
-    matchType?: 'best_match' | 'strong_match' | 'most_reliable' | 'alternative' | 'possible_alternative' | 'related';
+    matchType?: 'best_match' | 'most_reliable' | 'alternative';
   };
 }
 
@@ -70,6 +84,7 @@ export interface SearchLog {
   shopeeProductsRetained: number;
   specializedProductsRetained: number;
   statusNotes?: string;
+  shopee_search_status?: 'found' | 'no_reliable_result' | 'searxng_unreachable' | 'not_searched';
 }
 
 export interface BomItem {
@@ -92,8 +107,11 @@ export interface BomItem {
   supplierName?: string;
   supplierTier?: 1 | 2 | 3 | 4;
   supplierCountry?: 'VN' | 'INT';
-  matchType?: 'best_match' | 'strong_match' | 'most_reliable' | 'alternative' | 'possible_alternative' | 'related';
+  matchType?: 'best_match' | 'most_reliable' | 'alternative' | 'exact_match' | 'strong_match' | 'possible_alternative' | 'related';
+  matchGrade?: MatchGrade;
   searchLog?: SearchLog;
+  evidence?: ProductSourceEvidence;
+  shopee_search_status?: 'found' | 'no_reliable_result' | 'searxng_unreachable' | 'not_searched';
   // Architecture, Subsystem & Compatibility
   subsystem?: string;
   category?: string;
@@ -109,6 +127,7 @@ export interface BomSearchResult {
   content: string;
   engine?: string;
   price?: number;
+  evidence?: ProductSourceEvidence;
 }
 
 export interface AppSettings {

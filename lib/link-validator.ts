@@ -30,6 +30,49 @@ const SSRF_BLOCKED_HOSTNAMES = new Set([
   '169.254.169.254',
 ]);
 
+export const SOFT_404_PATTERNS = [
+  /sản\s*phẩm\s*(?:này\s*)?(?:không\s*tồn\s*tại|đã\s*(?:bị\s*)?xóa|ngừng\s*kinh\s*doanh|hết\s*hàng)/i,
+  /không\s*tìm\s*thấy\s*sản\s*phẩm/i,
+  /không\s*tìm\s*thấy\s*trang/i,
+  /trang\s*(?:bạn\s*tìm\s*kiếm\s*)?không\s*tồn\s*tại/i,
+  /page\s*not\s*found/i,
+  /item\s*(?:does\s*not\s*exist|not\s*found)/i,
+  /product\s*(?:not\s*found|does\s*not\s*exist)/i,
+  /error_item_not_found/i,
+  /error_product_not_exist/i,
+  /404\s*not\s*found/i,
+  /oops!\s*trang/i,
+  /rất\s*tiếc.*không\s*tìm\s*thấy/i,
+];
+
+export function normalizeProductUrl(urlStr: string): string {
+  if (!urlStr || typeof urlStr !== 'string') return '';
+  try {
+    const parsed = new URL(urlStr);
+    const trackingParams = [
+      'sp_atk',
+      'xptdk',
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'utm_term',
+      'utm_content',
+      'fbclid',
+      'gclid',
+    ];
+    for (const p of trackingParams) {
+      parsed.searchParams.delete(p);
+    }
+    let clean = parsed.toString();
+    if (parsed.pathname.length > 1 && clean.endsWith('/')) {
+      clean = clean.slice(0, -1);
+    }
+    return clean;
+  } catch {
+    return urlStr;
+  }
+}
+
 export function isPrivateOrBlockedIp(host: string): boolean {
   const clean = host.toLowerCase().trim();
   if (SSRF_BLOCKED_HOSTNAMES.has(clean)) return true;
@@ -285,6 +328,13 @@ export async function validateProductLink(
           return result;
         }
 
+        // If redirect target is no longer a specific product page (e.g. redirected to homepage, search or 404 page)
+        if (!isSpecificProductPath(nextUrl)) {
+          result.linkStatus = 'dead';
+          result.verificationReason = `Trang sản phẩm đã chuyển hướng về trang không phải sản phẩm cụ thể: ${nextUrl}`;
+          return result;
+        }
+
         currentUrl = nextUrl;
         redirectsCount++;
         continue;
@@ -348,6 +398,28 @@ export async function validateProductLink(
       const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
       const metaTitle = ogTitleMatch ? ogTitleMatch[1].replace(/\s+/g, ' ').trim() : '';
       result.productTitle = metaTitle || title || '';
+
+      // Soft-404 Detection (Page returns HTTP 200 but content states item does not exist or was deleted)
+      const isSoft404 = SOFT_404_PATTERNS.some(
+        (pattern) => pattern.test(title) || pattern.test(metaTitle) || pattern.test(html)
+      );
+      if (isSoft404) {
+        result.linkStatus = 'dead';
+        result.verificationReason = 'Trang thông báo sản phẩm không tồn tại hoặc đã bị xóa (Soft 404)';
+        return result;
+      }
+
+      // Detect unhydrated/empty Shopee SPA shell (returns 200 for any random URL with generic portal title)
+      if (
+        parsed.hostname.includes('shopee.vn') &&
+        (title.toLowerCase().includes('mua và bán trên ứng dụng di động') ||
+          title.toLowerCase() === 'shopee việt nam' ||
+          title === '')
+      ) {
+        result.linkStatus = 'unverified';
+        result.verificationReason = 'Trang Shopee SPA tải giao diện động, chưa thể xác minh chi tiết sản phẩm qua HTML tĩnh';
+        return result;
+      }
 
       // Identity Verification if expected product provided
       // Note: Include urlStr because SPAs like Shopee put product slug and model directly in the URL!

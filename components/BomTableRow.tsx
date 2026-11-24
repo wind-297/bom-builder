@@ -27,6 +27,16 @@ export interface BomTableRowProps {
   onResearch: (id: string) => void;
 }
 
+export function cleanUiText(text?: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\bTier\s*[1-4]\s*(?:Source|Supplier|VN)?\b/gi, '')
+    .replace(/\b(?:Priority|Source)\s*Tier\b/gi, '')
+    .replace(/\s*\((?:Tier\s*\d+[^)]*|Ưu tiên[^)]*)\)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export const BomTableRow: React.FC<BomTableRowProps> = ({
   item,
   index,
@@ -184,14 +194,8 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     name?: string,
     domain?: string
   ) => {
-    let displayName = name || (domain ? domain.replace('www.', '') : '');
+    let displayName = cleanUiText(name || (domain ? domain.replace('www.', '') : ''));
     if (!displayName) return null;
-
-    // Ẩn hoàn toàn chữ phân cấp như Tier 1, Tier 2, Tier 3, Ưu tiên...
-    displayName = displayName
-      .replace(/\s*\((?:Tier\s*\d+[^)]*|Ưu tiên[^)]*)\)/gi, '')
-      .replace(/\s*Tier\s*\d+/gi, '')
-      .trim();
 
     if (tier === 1 || domain?.includes('shopee.vn') || name?.toLowerCase().includes('shopee')) {
       return (
@@ -211,7 +215,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
     if (tier === 3) {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
-          <span>Sàn TMĐT {displayName}</span>
+          <span>{displayName}</span>
         </span>
       );
     }
@@ -354,7 +358,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
                 <span className="text-[11px] text-cyan-400/80">{item.subsystem}</span>
               )}
               {item.note && (
-                <span className="text-xs text-slate-500 truncate max-w-xs">{item.note}</span>
+                <span className="text-xs text-slate-500 truncate max-w-xs">{cleanUiText(item.note)}</span>
               )}
             </div>
           )}
@@ -673,7 +677,7 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
                             </div>
 
                             {alt.reason && (
-                              <span className="text-[11px] text-slate-400 mt-0.5">{alt.reason}</span>
+                              <span className="text-[11px] text-slate-400 mt-0.5">{cleanUiText(alt.reason)}</span>
                             )}
                           </div>
 

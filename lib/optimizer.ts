@@ -20,6 +20,16 @@ import {
   ComponentKnowledge,
 } from './component-understanding';
 
+export function cleanTierText(text?: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\bTier\s*[1-4]\s*(?:Source|Supplier|VN)?\b/gi, '')
+    .replace(/\b(?:Priority|Source)\s*Tier\b/gi, '')
+    .replace(/\s*\((?:Tier\s*\d+[^)]*|Ưu tiên[^)]*)\)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const OPTIMIZER_TIMEOUT_MS = 30000;
 
 export function isBlacklistedDomain(urlStr: string): boolean {
@@ -113,6 +123,7 @@ function calculateTechnicalRankScore(
       } else if (match.grade === 'related') {
         score += 20;
       } else if (match.grade === 'no_match') {
+        // Unrelated products are strictly discarded from technical rankings
         return -100;
       }
     }
@@ -150,6 +161,7 @@ QUY TẮC BẮT BUỘC:
    - "most_reliable": Sản phẩm từ nhà cung cấp chuyên ngành uy tín nhất.
    - "alternative": Sản phẩm thay thế tương đương.
 6. Nếu trong kết quả tìm kiếm KHÔNG CÓ sản phẩm nào phù hợp, hãy trả về "selectedUrl": "".
+7. TUYỆT ĐỐI KHÔNG sử dụng các nhãn phân cấp nội bộ như "Tier 1", "Tier 2", "Tier 3", "Tier 4", "Tier 1 Source", "Tier 2 Supplier" trong phần lý do (reason). Chỉ dùng tên cửa hàng hoặc tên sàn tự nhiên (ví dụ: Shopee, Hshop, NShop...).
 
 Chỉ trả về JSON thuần túy (không kèm markdown thừa):
 {
@@ -246,7 +258,8 @@ export function buildDiverseAlternatives(
       supplierCountry: altSource?.country,
       linkStatus: 'verified',
       matchType,
-      reason: matchReason,
+      reason: cleanTierText(matchReason),
+      evidence: r.evidence,
     };
   });
 }
@@ -322,7 +335,7 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
 
   // Best candidate selection
   const chosen =
-    topShopeeExact || topExact || topShopeeStrong || topStrong || topShopeeAlt || acceptable[0];
+    topShopeeExact || topShopeeStrong || topShopeeAlt || topExact || topStrong || acceptable[0];
   const best = chosen.result;
   const bestGrade = chosen.classification;
 
@@ -338,6 +351,8 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
   else if (bestGrade.grade === 'strong_match' || bestGrade.grade === 'equivalent') matchType = 'strong_match';
   else if (bestGrade.grade === 'possible_alternative') matchType = 'possible_alternative';
 
+  const noteText = item.note || `Chọn từ ${source?.name || 'nhà cung cấp'}: ${bestGrade.reason}`;
+
   return {
     ...item,
     unitPrice: currentManual,
@@ -350,8 +365,9 @@ function fallbackHeuristic(item: BomItem, ranked: BomSearchResult[]): BomItem {
     supplierCountry: source?.country,
     linkStatus: 'verified',
     matchType,
-    note: item.note || `Chọn từ ${source?.name || 'nhà cung cấp'}: ${bestGrade.reason}`,
+    note: cleanTierText(noteText),
     alternatives,
+    evidence: best.evidence,
   };
 }
 
@@ -459,12 +475,12 @@ ${rankedResults
       return fallbackHeuristic(item, rankedResults);
     }
 
-    // Strict Shopee priority guarantee: If any Shopee product with exact/equivalent match exists, prioritize it
+    // Strict Shopee priority guarantee: If any valid Shopee product exists, prioritize it
     const shopeeCandidate = rankedResults.find((r) => {
       const s = findSourceByUrl(r.url);
       if (s?.id !== 'shopee' && s?.tier !== 1) return false;
       const m = classifyProductMatch(knowledge, r);
-      return m.grade === 'exact_match' || m.grade === 'equivalent';
+      return m.grade !== 'no_match';
     });
     if (shopeeCandidate) {
       const chosenSource = findSourceByUrl(selectedUrl);
@@ -474,6 +490,7 @@ ${rankedResults
     }
 
     const source = findSourceByUrl(selectedUrl);
+    const selectedResult = rankedResults.find((r) => r.url === selectedUrl);
     const quantity = item.quantity > 0 ? item.quantity : 1;
     const manualAmt = item.manualPrice?.amount || 0;
 
@@ -490,6 +507,7 @@ ${rankedResults
         )
         .map((alt: any) => {
           const altSource = findSourceByUrl(alt.url);
+          const altResult = rankedResults.find((r) => r.url === alt.url);
           return {
             title: typeof alt.title === 'string' ? alt.title : '',
             url: alt.url,
@@ -499,7 +517,8 @@ ${rankedResults
             supplierCountry: altSource?.country,
             linkStatus: 'verified',
             matchType: alt.matchType || 'alternative',
-            reason: typeof alt.reason === 'string' ? alt.reason : undefined,
+            reason: cleanTierText(typeof alt.reason === 'string' ? alt.reason : undefined),
+            evidence: altResult?.evidence,
           };
         });
     }
@@ -507,6 +526,8 @@ ${rankedResults
     if (alternatives.length === 0) {
       alternatives = buildDiverseAlternatives(selectedUrl, rankedResults);
     }
+
+    const finalNote = parsed?.reason ? parsed.reason : (item.note || 'Đã tìm thấy sản phẩm phù hợp');
 
     return {
       ...item,
@@ -520,8 +541,9 @@ ${rankedResults
       supplierCountry: source?.country,
       linkStatus: 'verified',
       matchType: parsed?.matchType || 'best_match',
-      note: parsed?.reason ? parsed.reason : (item.note || 'Đã tìm thấy sản phẩm phù hợp'),
+      note: cleanTierText(finalNote),
       alternatives,
+      evidence: selectedResult?.evidence,
     };
   } catch (err) {
     console.warn('optimizeBomItemWithSearchResults error, using fallback heuristic:', err);
