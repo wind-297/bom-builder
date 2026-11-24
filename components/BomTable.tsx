@@ -86,6 +86,8 @@ export interface BomTableProps {
   onUpdateItem: (item: BomItem) => void;
   onDeleteItem: (id: string) => void;
   onResearchItem: (id: string) => void;
+  onCompareItem?: (item: BomItem) => void;
+  onSimulateItem?: (item: BomItem) => void;
   className?: string;
 }
 
@@ -94,6 +96,8 @@ export const BomTable: React.FC<BomTableProps> = ({
   onUpdateItem,
   onDeleteItem,
   onResearchItem,
+  onCompareItem,
+  onSimulateItem,
   className = '',
 }) => {
   return (
@@ -135,6 +139,8 @@ export const BomTable: React.FC<BomTableProps> = ({
                   onUpdate={onUpdateItem}
                   onDelete={onDeleteItem}
                   onResearch={onResearchItem}
+                  onCompare={onCompareItem}
+                  onSimulate={onSimulateItem}
                 />
               ))
             )}

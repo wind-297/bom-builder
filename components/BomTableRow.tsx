@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   Globe,
   Store,
+  Scale,
+  Cpu,
 } from 'lucide-react';
 import { BomItem, BomItemAlternative } from '../lib/types';
 import { formatVnd } from './BomTable';
@@ -25,6 +27,8 @@ export interface BomTableRowProps {
   onUpdate: (item: BomItem) => void;
   onDelete: (id: string) => void;
   onResearch: (id: string) => void;
+  onCompare?: (item: BomItem) => void;
+  onSimulate?: (item: BomItem) => void;
 }
 
 export function cleanUiText(text?: string): string {
@@ -43,6 +47,8 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
   onUpdate,
   onDelete,
   onResearch,
+  onCompare,
+  onSimulate,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [showAlternatives, setShowAlternatives] = useState(false);
@@ -623,8 +629,32 @@ export const BomTableRow: React.FC<BomTableRowProps> = ({
             <td colSpan={9} className="px-6 py-3">
               <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    Các nguồn mua thay thế ({item.alternatives.length}):
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Các nguồn mua thay thế ({item.alternatives.length}):
+                    </span>
+                    {onCompare && item.alternatives.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => onCompare(item)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition-colors"
+                        title="So sánh chi tiết thông số và ưu/nhược điểm các nguồn"
+                      >
+                        <Scale className="w-3 h-3" />
+                        <span>So sánh chi tiết</span>
+                      </button>
+                    )}
+                    {onSimulate && (
+                      <button
+                        type="button"
+                        onClick={() => onSimulate(item)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 transition-colors"
+                        title="Mô phỏng thay thế linh kiện này và kiểm tra ảnh hưởng hệ thống"
+                      >
+                        <Cpu className="w-3 h-3" />
+                        <span>Mô phỏng What-If</span>
+                      </button>
+                    )}
                   </div>
                   {item.searchLog && (
                     <div className="text-[11px] text-slate-400 flex items-center gap-1.5 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">

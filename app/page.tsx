@@ -13,6 +13,7 @@ import {
   AlertCircle,
   X,
   Sliders,
+  Network,
 } from 'lucide-react';
 import { BomItem, createNewBomItem, AppSettings, BomItemAlternative } from '@/lib/types';
 import { buildProductSearchQuery } from '@/lib/searxng';
@@ -24,6 +25,9 @@ import { SummaryCard } from '@/components/SummaryCard';
 import { ExportDropdown } from '@/components/ExportDropdown';
 import { SettingsModal } from '@/components/SettingsModal';
 import { CompatibilityBanner } from '@/components/CompatibilityBanner';
+import { ProductComparisonModal } from '@/components/ProductComparisonModal';
+import { CompatibilityGraphModal } from '@/components/CompatibilityGraphModal';
+import { WhatIfSimulatorModal } from '@/components/WhatIfSimulatorModal';
 
 export default function Home() {
   const [items, setItems] = useState<BomItem[]>([]);
@@ -42,6 +46,11 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  // Advanced features state: Comparison, Graph, What-If Simulator
+  const [isGraphOpen, setIsGraphOpen] = useState(false);
+  const [comparisonItem, setComparisonItem] = useState<BomItem | null>(null);
+  const [simulatorItem, setSimulatorItem] = useState<BomItem | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -446,6 +455,51 @@ export default function Home() {
     }
   };
 
+  // 10. Chọn phương án so sánh làm linh kiện chính
+  const handleSelectComparisonCandidate = (candidate: {
+    id: string;
+    title: string;
+    supplier: string;
+    sourceUrl: string;
+    verificationStatus: 'verified' | 'unverified' | 'dead' | 'blocked' | 'invalid';
+  }) => {
+    if (!comparisonItem) return;
+    const linkStatus =
+      candidate.verificationStatus === 'verified' ? 'verified' : 'unverified';
+    handleUpdateItem({
+      ...comparisonItem,
+      name: candidate.title,
+      selectedLink: candidate.sourceUrl,
+      supplierName: candidate.supplier,
+      linkStatus,
+      status: 'found',
+    });
+    setComparisonItem(null);
+  };
+
+  // 11. Áp dụng thay thế linh kiện từ What-If simulator
+  const handleApplySimulatorSwap = (targetId: string, replacement: BomItemAlternative) => {
+    const target = items.find((it) => it.id === targetId);
+    if (!target) return;
+    const unitPrice =
+      replacement.price && replacement.price > 0 ? replacement.price : target.unitPrice;
+    const totalPrice = unitPrice * target.quantity;
+    handleUpdateItem({
+      ...target,
+      name: replacement.title,
+      selectedLink: replacement.url,
+      supplierName: replacement.supplierName || target.supplierName,
+      supplierDomain: replacement.supplierDomain || target.supplierDomain,
+      supplierTier: replacement.supplierTier || target.supplierTier,
+      linkStatus: replacement.linkStatus || 'verified',
+      matchType: replacement.matchType || 'alternative',
+      unitPrice,
+      totalPrice,
+      status: 'found',
+    });
+    setSimulatorItem(null);
+  };
+
   const pendingCount = items.filter((it) => it.status !== 'found').length;
   const progressPercent =
     searchProgress.total > 0
@@ -485,6 +539,18 @@ export default function Home() {
             </span>
 
             <ExportDropdown items={items} />
+
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsGraphOpen(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-950/40 px-3 py-2 text-xs font-semibold text-purple-300 shadow-sm transition-all hover:bg-purple-900/50 hover:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                title="Xem sơ đồ kết nối hệ thống & tương thích kỹ thuật"
+              >
+                <Network className="h-3.5 w-3.5 text-purple-400" />
+                <span className="hidden sm:inline">Sơ đồ hệ thống</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -640,9 +706,21 @@ export default function Home() {
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
               Bảng linh kiện chi tiết
             </h2>
-            <span className="text-xs text-slate-500">
-              {items.length} món trong danh mục
-            </span>
+            <div className="flex items-center gap-3">
+              {items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsGraphOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                >
+                  <Network className="w-3.5 h-3.5" />
+                  <span>Sơ đồ hệ thống</span>
+                </button>
+              )}
+              <span className="text-xs text-slate-500">
+                {items.length} món trong danh mục
+              </span>
+            </div>
           </div>
 
           <BomTable
@@ -650,6 +728,8 @@ export default function Home() {
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
             onResearchItem={handleResearchItem}
+            onCompareItem={(item) => setComparisonItem(item)}
+            onSimulateItem={(item) => setSimulatorItem(item)}
           />
         </section>
 
@@ -667,6 +747,35 @@ export default function Home() {
           currentSettings={settings || undefined}
           onSaved={(newSettings) => setSettings(newSettings)}
         />
+
+        {/* Modal so sánh sản phẩm */}
+        {comparisonItem && (
+          <ProductComparisonModal
+            isOpen={!!comparisonItem}
+            onClose={() => setComparisonItem(null)}
+            primaryItem={comparisonItem}
+            alternatives={comparisonItem.alternatives || []}
+            onSelectAsPrimary={handleSelectComparisonCandidate}
+          />
+        )}
+
+        {/* Modal sơ đồ kết nối hệ thống */}
+        <CompatibilityGraphModal
+          isOpen={isGraphOpen}
+          onClose={() => setIsGraphOpen(false)}
+          items={items}
+        />
+
+        {/* Modal mô phỏng What-If */}
+        {simulatorItem && (
+          <WhatIfSimulatorModal
+            isOpen={!!simulatorItem}
+            onClose={() => setSimulatorItem(null)}
+            targetItem={simulatorItem}
+            allBomItems={items}
+            onApplySwap={handleApplySimulatorSwap}
+          />
+        )}
       </div>
     </main>
   );
