@@ -1,6 +1,6 @@
 import { getAppSettings } from './config';
 import { findSourceByUrl, isAllowedSourceUrl } from './sources';
-import { isSpecificProductPath } from './link-validator';
+import { isSpecificProductPath, normalizeProductUrl } from './link-validator';
 import { searchVietnamTier1Stores } from './vietnam-stores';
 import { BomSearchResult, SearchLog } from './types';
 import { understandComponent, buildExpandedShopeeQueries } from './component-understanding';
@@ -185,28 +185,35 @@ export function filterAllowedProductResults(results: BomSearchResult[]): BomSear
   for (const item of results) {
     if (!item?.url || typeof item.url !== 'string') continue;
 
+    const cleanUrl = normalizeProductUrl(item.url);
+
     // Must belong to centralized Search Source Allowlist
-    if (!isAllowedSourceUrl(item.url)) continue;
+    if (!isAllowedSourceUrl(cleanUrl)) continue;
 
     // Must be a specific product page (never root homepage, search, or category)
-    if (!isSpecificProductPath(item.url)) continue;
+    if (!isSpecificProductPath(cleanUrl)) continue;
 
-    const normalizedUrl = item.url.split('?')[0].replace(/\/+$/, '').toLowerCase();
-    if (seenUrls.has(normalizedUrl)) continue;
-    seenUrls.add(normalizedUrl);
+    const normalizedKey = cleanUrl.split('?')[0].replace(/\/+$/, '').toLowerCase();
+    if (seenUrls.has(normalizedKey)) continue;
+    seenUrls.add(normalizedKey);
 
-    if (!item.evidence) {
-      const src = findSourceByUrl(item.url);
-      item.evidence = {
-        originalUrl: item.url,
+    const cleanItem: BomSearchResult = {
+      ...item,
+      url: cleanUrl,
+    };
+
+    if (!cleanItem.evidence) {
+      const src = findSourceByUrl(cleanUrl);
+      cleanItem.evidence = {
+        originalUrl: cleanUrl,
         searchQuery: '',
         sourceDomain: src?.domain || 'unknown',
-        provider: item.engine || 'searxng',
+        provider: cleanItem.engine || 'searxng',
         retrievedAt: new Date().toISOString(),
       };
     }
 
-    clean.push(item);
+    clean.push(cleanItem);
   }
 
   // Sort Vietnam-first: Shopee (Tier 1) -> Specialized Stores (Tier 2) -> Other Marketplaces (Tier 3) -> International (Tier 4)

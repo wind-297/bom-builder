@@ -23,9 +23,9 @@ import {
 export function cleanTierText(text?: string): string {
   if (!text) return '';
   return text
+    .replace(/\s*\([^)]*(?:Tier\s*[1-4]|Ưu tiên)[^)]*\)/gi, '')
     .replace(/\bTier\s*[1-4]\s*(?:Source|Supplier|VN)?\b/gi, '')
     .replace(/\b(?:Priority|Source)\s*Tier\b/gi, '')
-    .replace(/\s*\((?:Tier\s*\d+[^)]*|Ưu tiên[^)]*)\)/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -475,12 +475,17 @@ ${rankedResults
       return fallbackHeuristic(item, rankedResults);
     }
 
-    // Strict Shopee priority guarantee: If any valid Shopee product exists, prioritize it
+    // Strict Shopee priority guarantee: If any valid Shopee product exists in top 3 match grades, prioritize it
     const shopeeCandidate = rankedResults.find((r) => {
       const s = findSourceByUrl(r.url);
       if (s?.id !== 'shopee' && s?.tier !== 1) return false;
       const m = classifyProductMatch(knowledge, r);
-      return m.grade !== 'no_match';
+      return (
+        m.grade === 'exact_match' ||
+        m.grade === 'strong_match' ||
+        m.grade === 'equivalent' ||
+        m.grade === 'possible_alternative'
+      );
     });
     if (shopeeCandidate) {
       const chosenSource = findSourceByUrl(selectedUrl);

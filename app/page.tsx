@@ -14,7 +14,7 @@ import {
   X,
   Sliders,
 } from 'lucide-react';
-import { BomItem, createNewBomItem, AppSettings } from '@/lib/types';
+import { BomItem, createNewBomItem, AppSettings, BomItemAlternative } from '@/lib/types';
 import { buildProductSearchQuery } from '@/lib/searxng';
 import { InputBar } from '@/components/InputBar';
 import { FileUploadZone } from '@/components/FileUploadZone';
@@ -57,15 +57,29 @@ export default function Home() {
         const parsed = JSON.parse(storedWorkspace);
         if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
           const sanitizedItems = parsed.items.map((it: BomItem) => {
-            if (it.manualPrice?.entrySource === 'user_input' && typeof it.manualPrice.amount === 'number') {
-              return it;
+            const hasManualPrice =
+              (it.manualPrice?.entrySource === 'user_input' && typeof it.manualPrice.amount === 'number') ||
+              (typeof it.unitPrice === 'number' && it.unitPrice > 0);
+
+            if (hasManualPrice) {
+              const amount = it.manualPrice?.amount ?? it.unitPrice;
+              const qty = it.quantity || 1;
+              return {
+                ...it,
+                unitPrice: amount,
+                totalPrice: amount * qty,
+                manualPrice: {
+                  amount,
+                  currency: 'VND',
+                  entrySource: 'user_input',
+                },
+              };
             }
             return {
               ...it,
               unitPrice: 0,
               totalPrice: 0,
               manualPrice: { amount: null, currency: 'VND', entrySource: null },
-              priceInfo: undefined,
             };
           });
           setItems(sanitizedItems);
@@ -338,8 +352,36 @@ export default function Home() {
           const optimized = optData?.item;
 
           if (optimized && optimized.id) {
-            const withLog = { ...optimized, searchLog: searchLog || optimized.searchLog };
-            setItems((prev) => prev.map((it) => (it.id === currentItem.id ? withLog : it)));
+            let finalItem = { ...optimized, searchLog: searchLog || optimized.searchLog };
+
+            setItems((prev) => {
+              const usedLinks = new Set(
+                prev
+                  .filter((other) => other.id !== finalItem.id && other.selectedLink)
+                  .map((other) => other.selectedLink.toLowerCase())
+              );
+
+              // If link is already claimed by another BOM component, promote an alternative
+              if (finalItem.selectedLink && usedLinks.has(finalItem.selectedLink.toLowerCase())) {
+                const uniqueAlt = (finalItem.alternatives || []).find(
+                  (alt: BomItemAlternative) => alt.url && !usedLinks.has(alt.url.toLowerCase())
+                );
+                if (uniqueAlt) {
+                  finalItem = {
+                    ...finalItem,
+                    selectedLink: uniqueAlt.url,
+                    supplierName: uniqueAlt.supplierName || finalItem.supplierName,
+                    supplierDomain: uniqueAlt.supplierDomain || finalItem.supplierDomain,
+                    supplierTier: uniqueAlt.supplierTier || finalItem.supplierTier,
+                    supplierCountry: uniqueAlt.supplierCountry || finalItem.supplierCountry,
+                    linkStatus: uniqueAlt.linkStatus || 'verified',
+                    matchType: uniqueAlt.matchType || 'alternative',
+                  };
+                }
+              }
+
+              return prev.map((it) => (it.id === currentItem.id ? finalItem : it));
+            });
           } else {
             setItems((prev) =>
               prev.map((it) =>

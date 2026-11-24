@@ -243,10 +243,36 @@ export function findSourceByDomain(hostname: string): SearchSource | null {
   return null;
 }
 
+function quickUnwrapUrl(urlStr: string): string {
+  if (!urlStr) return '';
+  try {
+    const parsed = new URL(urlStr);
+    const redirectKeys = ['q', 'url', 'u', 'target', 'redir', 'dest', 'uddg'];
+    for (const key of redirectKeys) {
+      const val = parsed.searchParams.get(key);
+      if (val) {
+        let decoded = val;
+        try {
+          decoded = decodeURIComponent(val);
+        } catch {
+          // ignore
+        }
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          return quickUnwrapUrl(decoded);
+        }
+      }
+    }
+    return urlStr;
+  } catch {
+    return urlStr;
+  }
+}
+
 export function findSourceByUrl(urlStr: string): SearchSource | null {
   if (!urlStr || typeof urlStr !== 'string') return null;
   try {
-    const parsed = new URL(urlStr);
+    const unwrapped = quickUnwrapUrl(urlStr);
+    const parsed = new URL(unwrapped);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return null;
     }

@@ -30,9 +30,9 @@ export interface BomTableRowProps {
 export function cleanUiText(text?: string): string {
   if (!text) return '';
   return text
+    .replace(/\s*\([^)]*(?:Tier\s*[1-4]|Ưu tiên)[^)]*\)/gi, '')
     .replace(/\bTier\s*[1-4]\s*(?:Source|Supplier|VN)?\b/gi, '')
     .replace(/\b(?:Priority|Source)\s*Tier\b/gi, '')
-    .replace(/\s*\((?:Tier\s*\d+[^)]*|Ưu tiên[^)]*)\)/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

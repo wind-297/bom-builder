@@ -421,10 +421,10 @@ export function classifyProductMatch(
       // Check voltage / spec conflict if specified
       if (knowledge.specifications.voltage) {
         const requiredVolt = knowledge.specifications.voltage.toLowerCase();
-        // Check if conflicting voltage is present (e.g. required 12V but title says 3V or 5V or 24V without 12V)
         const hasRequiredVolt = fullText.includes(requiredVolt);
         const hasConflictingVolt =
-          (requiredVolt === '12v' && (fullText.includes('3v') || fullText.includes('5v') || fullText.includes('24v')) && !hasRequiredVolt);
+          (requiredVolt === '12v' && (fullText.includes('3v') || fullText.includes('5v') || fullText.includes('6v') || fullText.includes('9v') || fullText.includes('24v')) && !hasRequiredVolt) ||
+          (requiredVolt === '5v' && (fullText.includes('12v') || fullText.includes('24v')) && !hasRequiredVolt);
 
         if (hasConflictingVolt) {
           return {
@@ -452,7 +452,10 @@ export function classifyProductMatch(
     }
 
     // Model did not match. Check if this is a known technical equivalent / strong match
-    if (knowledge.modelCode === 'TB6612FNG' && (fullText.includes('drv8833') || fullText.includes('l298n') || fullText.includes('l298'))) {
+    if (
+      (knowledge.modelCode === 'TB6612FNG' || knowledge.modelCode === 'TB6612') &&
+      (fullText.includes('drv8833') || fullText.includes('l298n') || fullText.includes('l298') || fullText.includes('driver động cơ') || fullText.includes('điều khiển động cơ'))
+    ) {
       return {
         grade: 'strong_match',
         reason: 'Mạch điều khiển động cơ thay thế tương đương kỹ thuật',
@@ -461,7 +464,55 @@ export function classifyProductMatch(
       };
     }
 
-    if (knowledge.modelCode === 'HC-SR04' && (fullText.includes('hc-sr05') || fullText.includes('us-015') || fullText.includes('cảm biến siêu âm'))) {
+    if (
+      (knowledge.modelCode === 'L298N' || knowledge.modelCode === 'L298') &&
+      (fullText.includes('tb6612') || fullText.includes('drv8833') || fullText.includes('bts7960') || fullText.includes('driver động cơ') || fullText.includes('điều khiển động cơ'))
+    ) {
+      return {
+        grade: 'strong_match',
+        reason: 'Mạch điều khiển động cơ thay thế tương đương kỹ thuật',
+        modelMatched: false,
+        specMatched: true,
+      };
+    }
+
+    if (
+      (knowledge.modelCode === 'LM2596' || knowledge.modelCode === 'XL4015') &&
+      (fullText.includes('xl4015') || fullText.includes('lm2596') || fullText.includes('hạ áp') || fullText.includes('giảm áp') || fullText.includes('buck') || fullText.includes('dc-dc'))
+    ) {
+      return {
+        grade: 'strong_match',
+        reason: 'Module giảm áp DC-DC tương đương kỹ thuật',
+        modelMatched: false,
+        specMatched: true,
+      };
+    }
+
+    if (
+      (knowledge.modelCode === 'SG90' || knowledge.modelCode === 'MG90S') &&
+      (fullText.includes('mg90s') || fullText.includes('mg90') || fullText.includes('sg90') || fullText.includes('sg92r') || fullText.includes('servo 9g'))
+    ) {
+      return {
+        grade: 'strong_match',
+        reason: 'Động cơ servo kích thước mini tương đương',
+        modelMatched: false,
+        specMatched: true,
+      };
+    }
+
+    if (
+      (knowledge.modelCode === 'MG996R' || knowledge.modelCode === 'MG995') &&
+      (fullText.includes('mg995') || fullText.includes('mg996') || fullText.includes('ds3218') || fullText.includes('servo tiêu chuẩn kim loại'))
+    ) {
+      return {
+        grade: 'strong_match',
+        reason: 'Động cơ servo tiêu chuẩn tải lớn tương đương',
+        modelMatched: false,
+        specMatched: true,
+      };
+    }
+
+    if (knowledge.modelCode === 'HC-SR04' && (fullText.includes('hc-sr05') || fullText.includes('us-015') || fullText.includes('us-100') || fullText.includes('cảm biến siêu âm') || fullText.includes('ultrasonic'))) {
       return {
         grade: 'strong_match',
         reason: 'Cảm biến siêu âm tương đương thông số',
@@ -470,7 +521,7 @@ export function classifyProductMatch(
       };
     }
 
-    if (knowledge.modelCode === 'ESP32 DevKit V1' && fullText.includes('esp32')) {
+    if (knowledge.modelCode === 'ESP32 DevKit V1' && (fullText.includes('esp32') || fullText.includes('nodemcu-32s') || fullText.includes('esp-wroom-32'))) {
       return {
         grade: 'strong_match',
         reason: 'Board phát triển ESP32 tương thích',
@@ -479,8 +530,20 @@ export function classifyProductMatch(
       };
     }
 
+    if (
+      (knowledge.modelCode === 'Arduino Uno' || knowledge.modelCode === 'Arduino Uno R3') &&
+      (fullText.includes('arduino uno') || fullText.includes('atmega328p') || fullText.includes('vietduino uno'))
+    ) {
+      return {
+        grade: 'strong_match',
+        reason: 'Board Arduino Uno tương thích',
+        modelMatched: false,
+        specMatched: true,
+      };
+    }
+
     // Check if result is at least in the same category
-    if (knowledge.category.includes('Dây curoa') && (fullText.includes('curoa') || fullText.includes('dây đai') || fullText.includes('v-belt'))) {
+    if (knowledge.category.includes('Dây curoa') && (fullText.includes('curoa') || fullText.includes('dây đai') || fullText.includes('v-belt') || fullText.includes('timing belt'))) {
       return {
         grade: 'related',
         reason: `Sản phẩm dây curoa nhưng không đúng mã ${knowledge.modelCode}`,
@@ -514,10 +577,19 @@ export function classifyProductMatch(
       };
     }
 
-    if (knowledge.category.includes('Cảm biến') && fullText.includes('cảm biến')) {
+    if (knowledge.category.includes('Cảm biến') && (fullText.includes('cảm biến') || fullText.includes('sensor'))) {
       return {
-        grade: 'related',
-        reason: `Cảm biến nhưng không đúng mã ${knowledge.modelCode}`,
+        grade: 'possible_alternative',
+        reason: `Cảm biến cùng chủng loại nhưng khác mã '${knowledge.modelCode}'`,
+        modelMatched: false,
+        specMatched: false,
+      };
+    }
+
+    if (knowledge.category.includes('nguồn') && (fullText.includes('nguồn') || fullText.includes('hạ áp') || fullText.includes('buck') || fullText.includes('pin'))) {
+      return {
+        grade: 'possible_alternative',
+        reason: `Module nguồn/hạ áp tương đương công dụng`,
         modelMatched: false,
         specMatched: false,
       };

@@ -45,10 +45,36 @@ export const SOFT_404_PATTERNS = [
   /rất\s*tiếc.*không\s*tìm\s*thấy/i,
 ];
 
-export function normalizeProductUrl(urlStr: string): string {
+export function unwrapRedirectUrl(urlStr: string): string {
   if (!urlStr || typeof urlStr !== 'string') return '';
   try {
     const parsed = new URL(urlStr);
+    const redirectKeys = ['q', 'url', 'u', 'target', 'redir', 'dest', 'uddg'];
+    for (const key of redirectKeys) {
+      const val = parsed.searchParams.get(key);
+      if (val) {
+        let decoded = val;
+        try {
+          decoded = decodeURIComponent(val);
+        } catch {
+          // ignore malformed uri
+        }
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          return unwrapRedirectUrl(decoded);
+        }
+      }
+    }
+    return urlStr;
+  } catch {
+    return urlStr;
+  }
+}
+
+export function normalizeProductUrl(urlStr: string): string {
+  if (!urlStr || typeof urlStr !== 'string') return '';
+  try {
+    const unwrapped = unwrapRedirectUrl(urlStr);
+    const parsed = new URL(unwrapped);
     const trackingParams = [
       'sp_atk',
       'xptdk',
@@ -93,7 +119,8 @@ export function isPrivateOrBlockedIp(host: string): boolean {
 export function isSpecificProductPath(urlStr: string): boolean {
   if (!urlStr || typeof urlStr !== 'string') return false;
   try {
-    const parsed = new URL(urlStr);
+    const unwrapped = unwrapRedirectUrl(urlStr);
+    const parsed = new URL(unwrapped);
     const path = parsed.pathname.replace(/\/+$/, '');
     const host = parsed.hostname.toLowerCase();
 
@@ -102,18 +129,41 @@ export function isSpecificProductPath(urlStr: string): boolean {
       return false;
     }
 
-    // Reject search or category filter pages
     const lowerPath = path.toLowerCase();
+    const segments = path.split('/').filter(Boolean);
+    if (segments.length === 0) return false;
+
+    // Reject search or category filter pages (both trailing slash and exact segment)
+    const categoryOrSearchPatterns = [
+      /^\/search(?:\/|$)/i,
+      /^\/tim-kiem(?:\/|$)/i,
+      /^\/category(?:\/|$)/i,
+      /^\/categories(?:\/|$)/i,
+      /^\/danh-muc(?:\/|$)/i,
+      /^\/danh-muc-san-pham(?:\/|$)/i,
+      /^\/collections(?:\/|$)/i,
+      /^\/collection(?:\/|$)/i,
+      /^\/danh-sach(?:\/|$)/i,
+      /^\/tag(?:\/|$)/i,
+      /^\/tags(?:\/|$)/i,
+      /^\/product-category(?:\/|$)/i,
+      /^\/find_similar(?:\/|$)/i,
+      /^\/flash_sale(?:\/|$)/i,
+      /^\/daily_discover(?:\/|$)/i,
+      /^\/filter(?:\/|$)/i,
+    ];
+
+    if (categoryOrSearchPatterns.some((pattern) => pattern.test(lowerPath))) {
+      return false;
+    }
+
     if (
       lowerPath.includes('/search') ||
       lowerPath.includes('/tim-kiem') ||
-      lowerPath.includes('/category/') ||
-      lowerPath.includes('/danh-muc/') ||
       lowerPath.includes('/collections/') ||
-      lowerPath.includes('/collection/') ||
-      lowerPath.includes('/danh-sach/') ||
-      lowerPath.includes('/tag/') ||
-      lowerPath.includes('/tags/') ||
+      lowerPath.includes('/danh-muc/') ||
+      lowerPath.includes('/product-category/') ||
+      lowerPath.includes('/category/') ||
       parsed.searchParams.has('keyword') ||
       parsed.searchParams.has('q') ||
       parsed.searchParams.has('s')
@@ -121,7 +171,7 @@ export function isSpecificProductPath(urlStr: string): boolean {
       return false;
     }
 
-    // Reject generic informative or auth paths
+    // Reject generic informative, cart, or auth paths
     const genericPaths = [
       '/about',
       '/about-us',
@@ -138,32 +188,77 @@ export function isSpecificProductPath(urlStr: string): boolean {
       '/tin-tuc',
       '/blogs',
       '/blog',
+      '/pages',
+      '/page',
       '/huong-dan',
       '/chinh-sach',
+      '/tra-cuu-don-hang',
     ];
-    if (genericPaths.some((gp) => path.toLowerCase() === gp || path.toLowerCase().startsWith(gp + '/'))) {
+    if (genericPaths.some((gp) => lowerPath === gp || lowerPath.startsWith(gp + '/'))) {
       return false;
     }
 
     // Shopee specific product pattern: MUST have product id and shop id
     if (host.includes('shopee.vn')) {
-      const isShopeeProduct = /-i\.\d+\.\d+/.test(path) || /\/product\/\d+\/\d+/.test(path);
-      const isNotSearchOrCategory = !path.includes('/search') && !path.includes('/list/') && !path.includes('/find_similar');
+      const isShopeeProduct = /-i\.\d+\.\d+/i.test(path) || /\/product\/(?:\d+\/\d+|[a-zA-Z0-9_-]+\/\d+\/\d+)/i.test(path);
+      const isNotSearchOrCategory = !lowerPath.includes('/search') && !lowerPath.includes('/list/') && !lowerPath.includes('/find_similar') && !lowerPath.includes('/m/');
       return isShopeeProduct && isNotSearchOrCategory;
     }
 
-    // Lazada specific product pattern
-    if (host.includes('lazada.vn')) {
-      return path.includes('-i') && path.endsWith('.html');
+    // Banlinhkien specific pattern:
+    // Category pages end in -c\d+\.html (e.g. cam-bien-c123.html) -> MUST REJECT!
+    // Product pages: end in -p\d+\.html, -pc\d+\.html, or product slug -> ACCEPT
+    if (host.includes('banlinhkien.com')) {
+      if (/-c\d+\.html$/i.test(path) || lowerPath.startsWith('/danh-muc')) {
+        return false;
+      }
+      return segments.length >= 1;
     }
 
-    // Tiki specific product pattern
+    // Hshop specific pattern: Products always live under /products/ or have slug
+    if (host.includes('hshop.vn')) {
+      if (lowerPath.startsWith('/products/')) return true;
+      if (lowerPath.startsWith('/collections') || lowerPath.startsWith('/pages') || lowerPath.startsWith('/blogs')) {
+        return false;
+      }
+    }
+
+    // NShop specific pattern: Products live under /product/ or /san-pham/
+    if (host.includes('nshopvn.com')) {
+      if (lowerPath.startsWith('/product/') || lowerPath.startsWith('/san-pham/')) return true;
+      if (lowerPath.startsWith('/danh-muc') || lowerPath.startsWith('/product-category')) {
+        return false;
+      }
+    }
+
+    // Lazada specific product pattern: has -i\d+ and ends in .html
+    if (host.includes('lazada.vn')) {
+      return /-i\d+.*\.html$/i.test(path);
+    }
+
+    // Tiki specific product pattern: has -p\d+ or /p\d+ and ends in .html
     if (host.includes('tiki.vn')) {
-      return path.includes('-p') && path.endsWith('.html');
+      return /(?:-p|\/p)\d+.*\.html$/i.test(path);
+    }
+
+    // International suppliers specific product paths
+    if (host.includes('digikey.com') || host.includes('digikey.vn')) {
+      return lowerPath.includes('/products/detail/') || lowerPath.includes('/product-detail/');
+    }
+    if (host.includes('mouser.com')) {
+      return lowerPath.includes('/productdetail/') || lowerPath.includes('/product/');
+    }
+    if (host.includes('lcsc.com')) {
+      return lowerPath.includes('/product-detail/');
+    }
+    if (host.includes('pololu.com')) {
+      return /^\/product\/\d+/i.test(path);
+    }
+    if (host.includes('dfrobot.com')) {
+      return /\/product-\d+\.html$/i.test(path);
     }
 
     // General store: must have at least one significant slug
-    const segments = path.split('/').filter(Boolean);
     return segments.length >= 1;
   } catch {
     return false;

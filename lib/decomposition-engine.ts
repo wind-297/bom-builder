@@ -27,7 +27,20 @@ const SINGLE_PRODUCT_PREFIXES = [
   'mạch',
   'cảm biến',
   'động cơ',
+  'motor',
   'driver',
+  'servo',
+  'bánh xe',
+  'khung xe',
+  'gá đỡ',
+  'giá đỡ',
+  'gá nhôm',
+  'dây curoa',
+  'dây đai',
+  'pin',
+  'khay pin',
+  'nguồn',
+  'sạc',
   'ic',
 ];
 
@@ -53,20 +66,18 @@ const PROJECT_INDICATORS = [
 export function detectSearchIntent(query: string): SearchIntent {
   const lower = (query || '').toLowerCase().trim();
 
-  // If starts with single product prefix (e.g. "Tìm ESP32", "Mua động cơ...", "Giá servo...")
-  const startsWithSinglePrefix = SINGLE_PRODUCT_PREFIXES.some((p) =>
-    lower.startsWith(p + ' ')
-  );
-
-  // If query explicitly requests a project build or BOM
+  // 1. If query explicitly requests a project build or BOM
   const hasProjectPhrases = [
     'chế tạo robot',
+    'chế tạo xe',
+    'chế tạo cánh tay',
     'làm robot',
     'chế xe',
     'chế cánh tay',
     'dự án',
     'danh sách linh kiện',
     'danh sách cần mua',
+    'danh sách vật tư',
     'danh sách',
     'bóc tách bom',
     'bóc tách',
@@ -81,10 +92,29 @@ export function detectSearchIntent(query: string): SearchIntent {
     return 'project_bom';
   }
 
-  // Component-level keywords
+  // 2. Whole robot project names (e.g. "Robot dò line", "Robot tránh vật cản...", "Cánh tay robot...")
+  const isWholeRobotProject =
+    /^robot\s+/i.test(lower) ||
+    /^xe\s+robot\s+/i.test(lower) ||
+    /^cánh\s+tay\s+robot\s+/i.test(lower) ||
+    lower === 'robot dò line' ||
+    lower === 'robot tránh vật cản' ||
+    lower === 'cánh tay robot 4 bậc tự do' ||
+    lower === 'xe mecanum điều khiển';
+
+  if (isWholeRobotProject) {
+    return 'project_bom';
+  }
+
+  // 3. Single component prefixes or component-level keywords
+  const startsWithSinglePrefix = SINGLE_PRODUCT_PREFIXES.some((p) =>
+    lower.startsWith(p + ' ') || lower === p
+  );
+
   const isComponentQuery = [
     'cảm biến',
     'động cơ',
+    'motor',
     'servo',
     'driver',
     'esp32',
@@ -97,14 +127,18 @@ export function detectSearchIntent(query: string): SearchIntent {
     'khung',
     'bánh xe',
     'cáp',
+    'dây curoa',
+    'dây đai',
+    'gá',
+    'giá đỡ',
   ].some((kw) => lower.includes(kw));
 
-  // If starts with single prefix and has no project-scale phrases, it's single product
-  if (startsWithSinglePrefix && (!lower.includes('robot') || isComponentQuery)) {
+  // If query starts with single component prefix or is a component query without project phrases
+  if (startsWithSinglePrefix || isComponentQuery) {
     return 'single_product';
   }
 
-  // Check general project indicators
+  // 4. Check general project indicators
   const hasProjectIndicator = PROJECT_INDICATORS.some((ind) => lower.includes(ind));
   if (hasProjectIndicator) {
     return 'project_bom';
@@ -112,7 +146,7 @@ export function detectSearchIntent(query: string): SearchIntent {
 
   // If it's a short query or component name, default to single_product
   const words = lower.split(/\s+/).filter(Boolean);
-  if (words.length <= 6 || isComponentQuery) {
+  if (words.length <= 6) {
     return 'single_product';
   }
 

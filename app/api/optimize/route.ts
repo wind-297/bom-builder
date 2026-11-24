@@ -41,7 +41,7 @@ export async function POST(req: Request) {
         for (let i = 0; i < remainingAlts.length; i++) {
           const alt = remainingAlts[i];
           const altCheck = await validateProductLink(alt.url, optimized.name);
-          if (altCheck.linkStatus === 'verified' || altCheck.linkStatus === 'blocked') {
+          if (altCheck.linkStatus !== 'dead' && altCheck.linkStatus !== 'invalid') {
             optimized = {
               ...optimized,
               selectedLink: altCheck.finalUrl || alt.url,

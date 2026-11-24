@@ -218,10 +218,11 @@ export async function searchVietnamTier1Stores(query: string, maxItems: number =
   const allResults: BomSearchResult[] = [];
   const seenUrls = new Set<string>();
 
+  const STOP_WORDS = new Set(['cho', 'cac', 'các', 'va', 'và', 'co', 'có', 'phu', 'phù', 'hop', 'hợp', 'cua', 'của', 'loai', 'loại', 'trong', 'de', 'để', 'lam', 'làm', 'voi', 'với', 'nhung', 'nhưng']);
   const queryKeywords = cleanQuery
     .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length >= 2);
+    .split(/[\s,./\\_-]+/)
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
 
   for (const s of settled) {
     if (s.status === 'fulfilled' && Array.isArray(s.value)) {
@@ -230,7 +231,10 @@ export async function searchVietnamTier1Stores(query: string, maxItems: number =
           seenUrls.add(item.url);
           // Check keyword relevance
           const lowerTitle = item.title.toLowerCase();
-          const matches = queryKeywords.some((kw) => lowerTitle.includes(kw));
+          const matches =
+            queryKeywords.length === 0 ||
+            lowerTitle.includes(cleanQuery.toLowerCase()) ||
+            queryKeywords.some((kw) => lowerTitle.includes(kw));
           if (matches) {
             allResults.push(item);
           }
